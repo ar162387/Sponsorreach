@@ -465,3 +465,27 @@ def test_workspace_profiles_refresh_stars_and_bookmarks(integration,monkeypatch)
         # Feedback remains independently recorded for a later admin view.
         assert client.post('/api/feedback',headers=headers,json={'session_id':first,'employer_id':eid,'event':'not_relevant'}).status_code==201
         assert db.one("select count(*) n from sm_private.feedback_events where session_id=%s and event='not_relevant'",(first,))['n']==1
+
+
+def test_saved_shortlist_get_is_read_only_and_verifies_auth_once(integration,monkeypatch):
+    from dataclasses import replace
+    from unittest.mock import Mock
+    from sponsor_match.search import Matcher
+    db,settings,_=integration
+    account={'id':str(uuid4()),'email':'saved-view@example.invalid','email_confirmed_at':'2026-10-18T00:00:00Z'}
+    response=Mock();response.json.return_value=account;response.raise_for_status.return_value=None
+    provider=Mock(return_value=response);monkeypatch.setattr('sponsor_match.api.httpx.get',provider)
+    config=replace(settings,require_verified_email=True,supabase_url='https://auth.example',supabase_publishable_key='test')
+    headers={'X-Session-Token':uuid4().hex*2,'Authorization':'Bearer test'}
+    with TestClient(create_app(config,Database(settings.database_url))) as client:
+        id=client.post('/api/matches',headers=headers,json=request()).json()['session_id']
+        Matcher(db,config).process_session(id)
+        before=db.one('select count(*) n from sm.work_items')['n']
+        provider.reset_mock()
+        data=client.get('/api/matches/'+id,headers=headers).json()
+        assert data['status']=='ready' and len(data['preview'])==3 and data['next_cursor'] is None
+        assert provider.call_count==1
+        assert db.one('select count(*) n from sm.work_items')['n']==before
+        # No names or contacts after the authorized preview are returned.
+        locked=db.rows('select employer_id from sm_private.match_results where session_id=%s and rank>=3',(id,))
+        assert all(str(row['employer_id']) not in str(data) for row in locked)

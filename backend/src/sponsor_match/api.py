@@ -42,10 +42,16 @@ def create_app(settings=None,db=None):
         return value
 
     def user(request,required=False):
+        # Verify once per HTTP request, never across requests or users.
+        if hasattr(request.state,'verified_account'):
+            account=request.state.verified_account
+            if required and account is None:raise HTTPException(401,'Sign in to view your account')
+            return account
         bearer=request.headers.get("authorization","")
         if not bearer or not settings.supabase_url or not settings.supabase_publishable_key:
             if required:
                 raise HTTPException(401,"Sign in to view your account")
+            request.state.verified_account=None
             return None
         try:
             response=httpx.get(settings.supabase_url.rstrip("/")+"/auth/v1/user",headers={"Authorization":bearer,"apikey":settings.supabase_publishable_key},timeout=10)
@@ -54,6 +60,7 @@ def create_app(settings=None,db=None):
             if not value.get("email_confirmed_at"):
                 raise HTTPException(401,"Verify your email first")
             UUID(value["id"])
+            request.state.verified_account=value
             return value
         except (httpx.HTTPError,ValueError,KeyError):
             raise HTTPException(401,"Your sign-in session could not be verified")
@@ -183,7 +190,7 @@ def create_app(settings=None,db=None):
             results=visible_results(s)
             preview=results if s["access"]!="preview" else results[:3]
             saved=bookmark_ids(request)
-            data.update({"preview":[card(r,e,e.id in saved) for r,e in preview[:20]],"preview_count":min(3,len(results)),"total_count":len(results),"locked_count":max(0,len(results)-3) if s["access"]=="preview" else 0,"direct_count":sum(r["group_name"]=="direct" for r,e in results),"related_count":sum(r["group_name"]=="related" for r,e in results),"is_demo":any(e.is_demo for r,e in results),"retrieval_mode":s["retrieval_mode"]})
+            data.update({"next_cursor":20 if len(preview)>20 else None,"preview":[card(r,e,e.id in saved) for r,e in preview[:20]],"preview_count":min(3,len(results)),"total_count":len(results),"locked_count":max(0,len(results)-3) if s["access"]=="preview" else 0,"direct_count":sum(r["group_name"]=="direct" for r,e in results),"related_count":sum(r["group_name"]=="related" for r,e in results),"is_demo":any(e.is_demo for r,e in results),"retrieval_mode":s["retrieval_mode"]})
         return data
 
     @app.get("/api/matches/{id}/results")

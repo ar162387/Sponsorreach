@@ -23,3 +23,10 @@ test('display text normalizes whitespace and bounds long fields',()=>{
  const messages=loadingMessages({roles:['A'.repeat(400)],skills:[],locations:[],background:'',specialization:'',related_roles_enabled:false});
  assert(messages.every(m=>m.length<200));
 });
+
+test('matching captions leave time to read and bound long text',()=>{
+ const {captionDuration}=sandbox.exports;
+ assert.equal(captionDuration('A short caption.'),6000);
+ assert.equal(captionDuration(Array(30).fill('word').join(' ')),9000);
+ assert.equal(captionDuration(Array(100).fill('word').join(' ')),15000);
+});

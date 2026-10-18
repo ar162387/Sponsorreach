@@ -1,0 +1,1 @@
+export default function Loading() { return <section className="shell intake-skeleton" role="status" aria-label="Opening profile form"><div className="skeleton-line title"/><div className="company-skeleton"><div className="skeleton-line title"/><div className="skeleton-line"/><div className="skeleton-line"/><div className="skeleton-line medium"/></div></section>; }

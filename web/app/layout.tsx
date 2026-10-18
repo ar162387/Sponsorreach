@@ -19,7 +19,7 @@ export const metadata: Metadata = {
 };
 export default async function Layout({ children }: { children: React.ReactNode }) {
   const user = await verifiedUser();
-  return <html lang="en-GB"><body>
+  return <html lang="en-GB"><body className={user ? 'authenticated-app' : undefined}>
     <a className="skip" href="#main">Skip to content</a>
     <header className="header"><Brand/><AccountNav signedIn={!!user}/></header>
     <main id="main" tabIndex={-1}>{children}</main>

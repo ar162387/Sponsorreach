@@ -14,3 +14,8 @@ export function loadingMessages(context?: LoadingContext): string[] {
   messages.push('Your recommendations will be saved so you can return to them.');
   return messages;
 }
+
+// Allow at least six seconds, and more time for longer personalised captions.
+export function captionDuration(message: string): number {
+  return Math.max(6000, Math.min(15000, message.trim().split(/\s+/).length * 300));
+}

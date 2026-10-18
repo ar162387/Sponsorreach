@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
+import Link from '@/components/navigation-link';
 import { ArrowLeft, ArrowRight, Check, Plus, X, Compass, Sparkles, RotateCcw } from 'lucide-react';
 import { api, type Profile } from '@/lib/types';
 

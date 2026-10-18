@@ -1,14 +1,14 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
-import Link from 'next/link';
+import Link from '@/components/navigation-link';
 import { ArrowRight, Pause, Play } from 'lucide-react';
 import type { LoadingContext } from '@/lib/types';
-import { loadingMessages } from '@/lib/personalization';
+import { loadingMessages, captionDuration } from '@/lib/personalization';
 
 export default function PersonalizedLoader({ stage, context, error }: { stage?: string; context?: LoadingContext; error: string }) {
   const contextKey = JSON.stringify(context);
-  // Polling returns new objects. Stable content keeps the one-second timer alive.
+  // Polling returns new objects. Stable content keeps the caption timer alive.
   const messages = useMemo(() => loadingMessages(context), [contextKey]);
   const [index, setIndex] = useState(0), [paused, setPaused] = useState(false), [visible, setVisible] = useState(true);
   useEffect(() => {
@@ -20,9 +20,9 @@ export default function PersonalizedLoader({ stage, context, error }: { stage?: 
   }, []);
   useEffect(() => {
     if (paused || !visible || error) return;
-    const timer = setInterval(() => setIndex(value => (value + 1) % messages.length), 1000);
-    return () => clearInterval(timer);
-  }, [paused, visible, error, messages]);
+    const timer = setTimeout(() => setIndex(value => (value + 1) % messages.length), captionDuration(messages[index % messages.length]));
+    return () => clearTimeout(timer);
+  }, [paused, visible, error, messages, index]);
   const heading = ({ 'Finding relevant sponsor employers': 'Finding relevant licensed sponsors', 'Checking professional relevance': 'Checking how company work fits your background', 'Ranking your shortlist': 'Organising your sponsor shortlist' } as Record<string, string>)[stage || ''] || stage || 'Understanding your background';
   return <section className="loader-page shell">
     <div className="loader-orbit" aria-hidden="true"><div className="loader-ring"/><div className="loader-ring second"/><Image src="/brand/sr-mark.png" width={76} height={68} alt=""/><span className="loader-point"/></div>

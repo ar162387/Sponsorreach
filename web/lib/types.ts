@@ -23,7 +23,7 @@ export type EmployerCard = {
 };
 export type LoadingContext = { roles: string[]; background: string; specialization: string; skills: string[]; locations: string[]; related_roles_enabled: boolean };
 export type MatchSession = {
-  starred?: boolean; revision?: number;
+  starred?: boolean; revision?: number; next_cursor?: number | null;
   loading_context?: LoadingContext;
   verification_required?: boolean;
   session_id: string; status: string; stage: string; access: string; error_code?: string;
@@ -33,6 +33,6 @@ export type MatchSession = {
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch('/api/' + path, { ...init, headers: { 'Content-Type': 'application/json', ...init?.headers }, cache: 'no-store' });
   const data = await response.json();
-  if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : data.error || 'We couldn’t complete this step. Please try again.');
+  if (!response.ok) throw Object.assign(new Error(typeof data.detail === 'string' ? data.detail : data.error || 'We couldn’t complete this step. Please try again.'), { status: response.status });
   return data;
 }

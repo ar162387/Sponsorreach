@@ -1,103 +1,44 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
-import Link from 'next/link';
-import Image from 'next/image';
-import { ArrowUpRight, ArrowRight, MapPin, Mail, Phone, Link2, LockKeyhole, Check, Compass, X, ThumbsUp, Bookmark, BriefcaseBusiness, ShieldCheck, ExternalLink, Globe, ChevronDown, Sparkles, RefreshCw, Star } from 'lucide-react';
+import Link from '@/components/navigation-link';
+import { ArrowUpRight, ArrowRight, MapPin, Mail, Phone, Link2, LockKeyhole, Check, Compass, X, ThumbsUp, Bookmark, BriefcaseBusiness, ShieldCheck, ExternalLink, Globe, ChevronDown, Sparkles, RefreshCw, Star, LoaderCircle } from 'lucide-react';
 import { api, type EmployerCard, type MatchSession } from '@/lib/types';
-import boardIcons from '@/lib/job-board-icons.json';
+import { Card } from './employer-card';
+import { ResultsSkeleton } from './skeletons';
 import PersonalizedLoader from '@/components/personalized-loader';
 
-function date(value: string) { return new Date(value).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }); }
-const labels: Record<string, string> = { website: 'Website', email: 'Email', phone: 'Phone', careers: 'Careers', linkedin_company: 'LinkedIn', linkedin_jobs: 'LinkedIn jobs', job_board: 'Job board', search_page: 'Search results', linkedin_person: 'LinkedIn profile' };
-function routeKey(value: string) {
-  try { const url = new URL(value); return url.hostname.toLowerCase().replace(/^www\./, '') + url.pathname.replace(/\/$/, '') + url.search; }
-  catch { return value.trim().toLowerCase(); }
-}
-type Channel = EmployerCard['channels'][number];
-function linkName(channel: Channel) {
-  if (channel.kind.startsWith('linkedin')) return 'LinkedIn';
-  if (channel.kind === 'website') return 'Website';
-  if (channel.kind === 'careers') return 'Careers';
-  return (channel.label || labels[channel.kind] || 'Other link').split(' · ')[0];
-}
-function BoardIcon({ name }: { name: string }) {
-  const [failed, setFailed] = useState(false);
-  const src = (boardIcons as Record<string, string>)[name];
-  if (src && !failed) return <Image src={src} width={16} height={16} alt="" unoptimized onError={() => setFailed(true)}/>;
-  return name === 'Website' ? <Globe size={15}/> : name === 'LinkedIn' ? <Link2 size={15}/> : <BriefcaseBusiness size={15}/>;
-}
-export function Card({ employer, id, position, dashboard = false, onBookmarkChange }: { employer: EmployerCard; id: string; position: number; dashboard?: boolean; onBookmarkChange?: (saved: boolean) => void }) {
-  const [saved, setSaved] = useState(!!employer.bookmarked), [helpful, setHelpful] = useState(false), [error, setError] = useState('');
-  useEffect(() => { if (dashboard) return; api('feedback', { method: 'POST', body: JSON.stringify({ session_id: id, employer_id: employer.employer_id, event: 'impression', position }) }).catch(() => {}); }, [id, employer.employer_id, position, dashboard]);
-  async function feedback(event: string) {
-    try { await api('feedback', { method: 'POST', body: JSON.stringify({ session_id: id, employer_id: employer.employer_id, event, position }) }); if (event === 'save') setSaved(true); if (event === 'helpful') setHelpful(true); }
-    catch { setError('Your feedback couldn’t be saved. Please try again.'); }
-  }
-  const [saving, setSaving] = useState(false);
-  async function toggleBookmark() {
-    if (saving) return;
-    setSaving(true); setError('');
-    try {
-      const result = await api<{ bookmarked: boolean }>(dashboard ? `account/bookmarks/${employer.employer_id}` : `matches/${id}/bookmarks/${employer.employer_id}`, { method: 'POST', body: JSON.stringify({ saved: !saved }) });
-      setSaved(result.bookmarked); onBookmarkChange?.(result.bookmarked);
-    } catch (e) { setError((e as Error).message); } finally { setSaving(false); }
-  }
-  const direct = employer.channels.filter(c => c.kind === 'email' || c.kind === 'phone' || c.kind === 'address');
-  const groups = new Map<string, Channel[]>();
-  for (const channel of employer.channels.filter(c => !['email','phone','address'].includes(c.kind))) {
-    const name = linkName(channel), items = groups.get(name) || [];
-    if (!items.some(item => routeKey(item.value) === routeKey(channel.value))) items.push(channel);
-    groups.set(name,items);
-  }
-  const websiteGroups = [...groups].filter(([name]) => ['Website','Careers','LinkedIn'].includes(name));
-  const boardGroups = [...groups].filter(([name]) => !['Website','Careers','LinkedIn'].includes(name));
-  function renderGroup([name, items]: [string, Channel[]]) {
-    const title = (channel: Channel, index: number) => channel.kind === 'search_page' ? 'Search jobs' : channel.label?.includes('job link') ? 'Job listing' : channel.kind === 'linkedin_company' ? 'Company page' : channel.kind === 'linkedin_jobs' ? 'Jobs page' : channel.kind === 'linkedin_person' ? 'Profile' : items.length > 1 ? `Company link ${index + 1}` : name;
-    if (items.length === 1) {
-      const channel=items[0], content=<><BoardIcon name={name}/><span>{name}</span></>;
-      return employer.is_demo || channel.linkable === false ? <span className="reach-route disabled" key={name}>{content}</span> : <a className="reach-route" key={name} href={channel.value} target="_blank" rel="noreferrer" onClick={() => feedback('channel_click')}>{content}</a>;
-    }
-    return <details className="reach-menu" key={name}><summary className="reach-route"><BoardIcon name={name}/><span>{name}</span><span className="route-count">{items.length}</span><ChevronDown size={12}/></summary><div className="reach-menu-panel">{items.map((channel,index) => employer.is_demo || channel.linkable === false ? <span key={channel.value}>{title(channel,index)}</span> : <a href={channel.value} key={channel.value} target="_blank" rel="noreferrer" onClick={() => feedback('channel_click')}>{title(channel,index)}<ArrowUpRight size={13}/></a>)}</div></details>;
-  }
-  return <article className="employer-card reach-card">
-    <div className="reach-card-top"><span className="reach-licence"><ShieldCheck size={14}/>{employer.is_demo ? 'Sample sponsor' : 'Licensed sponsor'}</span><button className={`reach-save ${saved ? 'selected' : ''}`} disabled={saving} aria-pressed={saved} aria-label={saved ? `Remove bookmark for ${employer.name}` : `Bookmark ${employer.name}`} onClick={toggleBookmark}><Bookmark size={18} fill={saved ? 'currentColor' : 'none'}/></button></div>
-    <div className="reach-identity"><h3>{employer.name}</h3><p><MapPin size={13}/>{employer.town || 'UK'}</p></div>
-    <div className="reach-fit"><span><Sparkles size={14}/>Why it fits</span><p>{employer.explanation.summary || employer.explanation.text.replace(/^Published business activity:\s*/, '').split(' This aligns with your interest in ')[0]}</p></div>
-    {!!direct.length && <div className="reach-contacts">{direct.map(channel => {
-      const href = channel.kind === 'address' ? '' : channel.kind === 'email' ? 'mailto:' + channel.value : 'tel:' + channel.value.replace(/[^+\d]/g, '');
-      const content=<>{channel.kind === 'email' ? <Mail size={15}/> : channel.kind === 'address' ? <MapPin size={15}/> : <Phone size={15}/>}<span>{channel.value}</span>{channel.kind !== 'address' && <ArrowUpRight size={13}/>}</>;
-      return employer.is_demo || channel.kind === 'address' || channel.linkable === false ? <span className="reach-direct disabled" key={channel.kind + channel.value}>{content}</span> : <a className="reach-direct" key={href} href={href} onClick={() => feedback('channel_click')}>{content}</a>;
-    })}</div>}
-    {!!websiteGroups.length && <div className="reach-route-row">{websiteGroups.map(renderGroup)}</div>}
-    {!!boardGroups.length && <div className="reach-job-boards"><span className="reach-section-label">EXPLORE JOB BOARDS</span><div className="reach-route-row">{boardGroups.map(renderGroup)}</div></div>}
-    {!!employer.verified_open_vacancies.length && <div className="reach-openings">{employer.verified_open_vacancies.filter(v => !employer.channels.some(c => routeKey(c.value) === routeKey(v.url))).map(v => <a href={v.url} key={v.url} target="_blank" rel="noreferrer"><BriefcaseBusiness size={14}/>{v.title}<ArrowUpRight size={13}/></a>)}</div>}
-    {!dashboard && <div className="reach-feedback"><button className={helpful ? 'selected' : ''} onClick={() => feedback('helpful')}><ThumbsUp size={14}/>{helpful ? 'Thanks!' : 'Relevant to me'}</button><button onClick={() => feedback('not_relevant')}>Not relevant</button></div>}{dashboard && employer.session_id && <Link className="text-link bookmark-source" href={"/results/" + employer.session_id}>Open shortlist<ArrowUpRight size={14}/></Link>}{error && <p className="error" role="alert">{error}</p>}
-  </article>;
-}
-
-export default function Results({ id }: { id: string }) {
-  const [session, setSession] = useState<MatchSession | null>(null), [cards, setCards] = useState<EmployerCard[]>([]), [error, setError] = useState(''), [modal, setModal] = useState(false), [busy, setBusy] = useState(false), [cursor, setCursor] = useState<number | null>(null);
+export type ShortlistView = { session: MatchSession; cards: EmployerCard[]; cursor: number | null };
+export default function Results({ id, embedded = false, title, cache, externalStarred, onSessionChange, onBookmarkChange }: {
+  id: string; embedded?: boolean; title?: string; cache?: Map<string, ShortlistView>; externalStarred?: boolean;
+  onSessionChange?: (session: MatchSession) => void;
+  onBookmarkChange?: (employer: EmployerCard, saved: boolean) => void;
+}) {
+  const cached = cache?.get(id);
+  const [session, setSession] = useState<MatchSession | null>(cached?.session || null), [cards, setCards] = useState<EmployerCard[]>(cached?.cards || []), [error, setError] = useState(''), [modal, setModal] = useState(false), [busy, setBusy] = useState(false), [cursor, setCursor] = useState<number | null>(cached?.cursor ?? null);
   const dialog = useRef<HTMLDialogElement>(null);
   const [refreshEpoch, setRefreshEpoch] = useState(0);
   const refreshKey = useRef<string | null>(null);
   useEffect(() => {
-    let cancelled = false, timer: ReturnType<typeof setTimeout>, failures = 0;
+    const controller = new AbortController();
+    let cancelled = false, timer: ReturnType<typeof setTimeout>, failures = 0, received = false;
     async function poll() {
       try {
-        const data = await api<MatchSession>('matches/' + id);
+        const data = await api<MatchSession>('matches/' + id, { signal: controller.signal });
         if (cancelled) return;
-        failures = 0; setSession(data); setError('');
-        if (data.verification_required) { timer = setTimeout(poll, 4000); return; }
+        received = true; failures = 0; setSession(data); onSessionChange?.(data); setError('');
+        if (data.verification_required) { cache?.delete(id); setCards([]); timer = setTimeout(poll, 4000); return; }
         if (data.status === 'ready') {
-          const page = await api<{ results: EmployerCard[]; next_cursor: number | null }>(`matches/${id}/results`);
-          if (!cancelled) { setCards(page.results); setCursor(page.next_cursor); }
+          const next = data.next_cursor !== undefined ? data.next_cursor : (data.access !== 'preview' && (data.total_count || 0) > (data.preview?.length || 0) ? data.preview?.length || null : null);
+          setCards(data.preview || []); setCursor(next);
+          cache?.set(id, { session: data, cards: data.preview || [], cursor: next });
         } else if (data.status === 'failed') setError('We couldn’t finish your sponsor shortlist. Please try again with a new search.');
         else timer = setTimeout(poll, 800);
       } catch (e) {
-        if (!cancelled) { failures++; if (failures < 4) timer = setTimeout(poll, 2000); else setError((e as Error).message); }
+        if (!cancelled && [401, 403, 404].includes((e as Error & { status?: number }).status || 0)) { cache?.clear(); setSession(null); setCards([]); }
+        if (!cancelled) { failures++; if (received && failures < 3) timer = setTimeout(poll, 2000); else setError((e as Error).message); }
       }
     }
-    poll(); return () => { cancelled = true; clearTimeout(timer); };
+    poll(); return () => { cancelled = true; controller.abort(); clearTimeout(timer); };
   }, [id, refreshEpoch]);
   useEffect(() => { if (modal) dialog.current?.showModal(); else dialog.current?.close(); }, [modal]);
   async function unlock() {
@@ -105,13 +46,14 @@ export default function Results({ id }: { id: string }) {
     try {
       await api(`matches/${id}/demo-unlock`, { method: 'POST', body: '{}' });
       const data = await api<MatchSession>('matches/' + id);
-      const page = await api<{ results: EmployerCard[]; next_cursor: number | null }>(`matches/${id}/results`);
-      setSession(data); setCards(page.results); setCursor(page.next_cursor); setModal(false);
+      const next = data.next_cursor ?? (data.access !== 'preview' && (data.total_count || 0) > (data.preview?.length || 0) ? data.preview?.length || null : null);
+      setSession(data); setCards(data.preview || []); setCursor(next); setModal(false); onSessionChange?.(data);
+      cache?.set(id, { session: data, cards: data.preview || [], cursor: next });
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
   async function more() {
     setBusy(true);
-    try { const page = await api<{ results: EmployerCard[]; next_cursor: number | null }>(`matches/${id}/results?cursor=${cursor}`); setCards(c => [...c, ...page.results]); setCursor(page.next_cursor); }
+    try { const page = await api<{ results: EmployerCard[]; next_cursor: number | null }>(`matches/${id}/results?cursor=${cursor}`); setCards(c => { const combined = [...c, ...page.results]; if (session) cache?.set(id, { session, cards: combined, cursor: page.next_cursor }); return combined; }); setCursor(page.next_cursor); }
     catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
   async function refresh() {
@@ -120,29 +62,47 @@ export default function Results({ id }: { id: string }) {
     refreshKey.current ||= crypto.randomUUID();
     try {
       await api(`matches/${id}/refresh`, { method: 'POST', body: JSON.stringify({ idempotency_key: refreshKey.current }) });
-      refreshKey.current = null; setCards([]); setCursor(null);
+      refreshKey.current = null; cache?.delete(id); setCards([]); setCursor(null);
       setSession(current => current ? { ...current, status: 'queued', stage: 'Understanding your career interests' } : current);
       setRefreshEpoch(value => value + 1);
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
   async function star() {
     if (busy) return;
+    const previous = !!(externalStarred ?? session?.starred);
+    setSession(current => current ? { ...current, starred: !previous } : current);
+    if (session) onSessionChange?.({ ...session, starred: !previous });
     setBusy(true); setError('');
     try {
-      const value = await api<{ starred: boolean }>(`matches/${id}/star`, { method: 'POST', body: JSON.stringify({ saved: !session?.starred }) });
+      const value = await api<{ starred: boolean }>(`matches/${id}/star`, { method: 'POST', body: JSON.stringify({ saved: !previous }) });
       setSession(current => current ? { ...current, starred: value.starred } : current);
-    } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+      if (session) { const next = { ...session, starred: value.starred }; onSessionChange?.(next); if (cache?.has(id)) cache.set(id, { ...cache.get(id)!, session: next }); }
+    } catch (e) {
+      setSession(current => current ? { ...current, starred: previous } : current);
+      if (session) onSessionChange?.({ ...session, starred: previous });
+      setError((e as Error).message);
+    } finally { setBusy(false); }
   }
+  function bookmarkChanged(employer: EmployerCard, saved: boolean) {
+    setCards(values => values.map(item => item.employer_id === employer.employer_id ? { ...item, bookmarked: saved } : item));
+    const current = cache?.get(id);
+    if (current) cache?.set(id, { ...current, cards: current.cards.map(item => item.employer_id === employer.employer_id ? { ...item, bookmarked: saved } : item) });
+    onBookmarkChange?.(employer, saved);
+  }
+
+  const starred = externalStarred ?? session?.starred;
   const ready = session?.status === 'ready';
+  if (!session) return error ? <div className="saved-results-error" role="alert"><h2>Let’s reconnect your shortlist.</h2><p>{error}</p><button className="button secondary small" onClick={() => { setError(''); setRefreshEpoch(value => value + 1); }}>Try loading again</button></div> : <ResultsSkeleton embedded={embedded}/>;
   if (session?.verification_required) return <section className="loader-page shell"><Mail size={48}/><p className="eyebrow">ONE LAST STEP</p><h1>Confirm your <em>email.</em></h1><p className="muted">Your shortlist is saved. Open the confirmation link we sent to see your free sponsor previews. Use this browser to connect the link to your pending shortlist.</p><p className="email-spam-note" role="note"><strong>Check your spam or junk folder too.</strong> If the email lands there, mark it as not spam so future sign-in links reach your inbox.</p><button className="button" disabled={busy} onClick={async () => { setBusy(true); setError(''); try { const response=await fetch('/api/auth/magic-link',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:id})}); const result=await response.json(); if(!response.ok)throw new Error(result.error || 'Email could not be sent.'); setError('Confirmation email sent. Please check your inbox and spam folder.'); } catch(e){setError((e as Error).message);} finally {setBusy(false);} }}>Resend confirmation email</button>{error && <p role="status">{error}</p>}<Link className="text-button" href="/account">Already confirmed? Sign in</Link></section>;
   if (session?.status === 'failed') return <section className="loader-page shell"><Compass size={38}/><h1>Let’s try your shortlist again.</h1><p className="muted">Your profile and saved choices are safe. Retry the search or refine this shortlist.</p><button className="button" disabled={busy} onClick={refresh}><RefreshCw size={17}/>Retry this shortlist</button><Link className="text-link" href={"/match?shortlist=" + id}>Refine this shortlist</Link>{error && <p className="error" role="alert">{error}</p>}</section>;
+  if (!ready && !['queued', 'processing'].includes(session.status)) return <div className="saved-results-error"><h2>Your profile needs a little more detail.</h2><Link href={'/match?shortlist=' + id}>Refine this shortlist</Link></div>;
   if (!ready) return <PersonalizedLoader stage={session?.stage} context={session?.loading_context} error={error}/>;
   const direct = cards.filter(c => c.group === 'direct'), related = cards.filter(c => c.group === 'related');
-  return <section className="results-shell shell"><div className="results-heading"><div><p className="eyebrow"><span className="status-dot"/>RELEVANT COMPANIES. YOUR NEXT STEP.</p><h1>Your sponsor <em>shortlist.</em></h1><p className="muted">{session.total_count ? `${session.total_count} relevant sponsor ${session.total_count === 1 ? 'company' : 'companies'} to research and approach.` : 'We don’t yet have enough company evidence to recommend sponsors for this profile.'}</p></div><Link href={"/match?shortlist=" + id} className="button secondary">Refine this shortlist <ArrowUpRight size={17}/></Link></div>
+  return <section className={embedded ? 'embedded-results' : 'results-shell shell'}>{embedded ? <header className="research-detail-heading"><div><span className="workspace-kicker">SAVED SHORTLIST</span><h2>{title || session.loading_context?.roles.join(' · ') || 'Your sponsor shortlist'}</h2><p>{session.total_count || 0} relevant companies · {session.access === 'preview' ? 'Free preview' : 'Full shortlist unlocked'}</p>{session.loading_context && <details className="selected-profile-context"><summary>Profile context</summary><p>{session.loading_context.background}{session.loading_context.specialization && ' · ' + session.loading_context.specialization}</p><div>{session.loading_context.skills.map(skill => <span className="tag" key={skill}>{skill}</span>)}</div><p>{session.loading_context.locations.join(', ') || 'Anywhere in the UK'}</p></details>}</div><div className="research-detail-actions"><Link className="button secondary small" href={'/match?shortlist=' + id}>Refine profile</Link><Link className="icon-button open-full-shortlist" href={'/results/' + id} aria-label="Open full shortlist page" title="Open full shortlist page"><ExternalLink size={18}/></Link></div></header> : <div className="results-heading"><div><p className="eyebrow"><span className="status-dot"/>RELEVANT COMPANIES. YOUR NEXT STEP.</p><h1>Your sponsor <em>shortlist.</em></h1><p className="muted">{session.total_count ? `${session.total_count} relevant sponsor ${session.total_count === 1 ? 'company' : 'companies'} to research and approach.` : 'We don’t yet have enough company evidence to recommend sponsors for this profile.'}</p></div><Link href={"/match?shortlist=" + id} className="button secondary">Refine this shortlist <ArrowUpRight size={17}/></Link></div>}
     {session.is_demo && <div className="demo-banner"><Compass size={18}/><div><strong>Demonstration shortlist</strong><span>These sample employers, contacts, and evidence are fictional. They show how your matching experience works.</span></div></div>}
-    <div className="results-toolbar"><span>{session.access === 'preview' ? 'YOUR FREE PREVIEW' : 'YOUR SAVED SPONSOR SHORTLIST'}</span><div><button className="icon-button shortlist-refresh" disabled={busy} onClick={refresh} aria-label="Refresh companies in this shortlist" title="Run this profile against the latest company data"><RefreshCw size={17}/></button><button className={`icon-button shortlist-star ${session.starred ? 'selected' : ''}`} disabled={busy} onClick={star} aria-pressed={!!session.starred} aria-label={session.starred ? 'Unstar shortlist' : 'Star shortlist'}><Star size={17} fill={session.starred ? 'currentColor' : 'none'}/></button><span className="tag">{session.direct_count || 0} direct</span>{!!session.related_count && <span className="tag">{session.related_count} related</span>}<span className="tiny muted">Relevant companies, with supporting sources</span></div></div>
-    {!!direct.length && <><div className="section-label"><h2>Companies for your target roles</h2><span>Company work that connects with your background</span></div><div className="cards-grid">{direct.map(c => <Card key={c.employer_id} employer={c} id={id} position={cards.indexOf(c)}/>)}</div></>}
-    {!!related.length && <><div className="section-label"><h2>Companies for related roles</h2><span>Alternative roles you chose to include</span></div><div className="cards-grid">{related.map(c => <Card key={c.employer_id} employer={c} id={id} position={cards.indexOf(c)}/>)}</div></>}
+    <div className="results-toolbar"><span>{session.access === 'preview' ? 'YOUR FREE PREVIEW' : 'YOUR SAVED SPONSOR SHORTLIST'}</span><div><button className="icon-button shortlist-refresh" disabled={busy} onClick={refresh} aria-label="Refresh companies in this shortlist" title="Run this profile against the latest company data">{busy ? <LoaderCircle size={17} className="spin"/> : <RefreshCw size={17}/>}</button><button className={`icon-button shortlist-star ${starred ? 'selected' : ''}`} disabled={busy} onClick={star} aria-pressed={!!starred} aria-label={starred ? 'Unstar shortlist' : 'Star shortlist'}><Star size={17} fill={starred ? 'currentColor' : 'none'}/></button><span className="tag">{session.direct_count || 0} direct</span>{!!session.related_count && <span className="tag">{session.related_count} related</span>}<span className="tiny muted">{embedded ? 'Company research & contact routes' : 'Relevant companies, with supporting sources'}</span></div></div>
+    {!!direct.length && <><div className="section-label"><h2>Companies for your target roles</h2><span>Company work that connects with your background</span></div><div className="cards-grid">{direct.map(c => <Card key={c.employer_id} employer={c} id={id} position={cards.indexOf(c)} compact={embedded} onBookmarkChange={saved => bookmarkChanged(c, saved)}/>)}</div></>}
+    {!!related.length && <><div className="section-label"><h2>Companies for related roles</h2><span>Alternative roles you chose to include</span></div><div className="cards-grid">{related.map(c => <Card key={c.employer_id} employer={c} id={id} position={cards.indexOf(c)} compact={embedded} onBookmarkChange={saved => bookmarkChanged(c, saved)}/>)}</div></>}
     {!cards.length && <div className="empty-state"><Compass size={38}/><h2>Let’s give your search more direction.</h2><p>There isn’t enough supported company information for this search yet. Try a more specific role, add your skills or responsibilities, or include related roles. This is about the information available, not your potential.</p><Link href={"/match?shortlist=" + id} className="button">Refine this shortlist <ArrowRight size={17}/></Link></div>}
     {!!session.locked_count && <div className="unlock-section"><div className="locked-grid" aria-hidden="true">{Array.from({ length: Math.min(3, session.locked_count) }).map((_, i) => <div className="locked-card" key={i}><div className="blur-content"><div className="fake-avatar"/><h3>A relevant sponsor company</h3><p>Reasons this company may fit</p><div className="fake-line"/><div className="fake-line short"/><span>Available outreach channels</span></div></div>)}</div><div className="unlock-callout"><span className="unlock-icon"><LockKeyhole size={22}/></span><h2>More relevant companies to reach.</h2><p>Unlock {session.locked_count} more sponsor {session.locked_count === 1 ? 'company' : 'companies'} from this saved shortlist, with available contacts and reasons each may fit.</p><button className="button" onClick={() => setModal(true)}>Unlock my full sponsor shortlist <ArrowRight size={18}/></button><small>Demo unlock · no payment details or charge</small></div></div>}
     {cursor !== null && <div className="load-more"><button className="button secondary" disabled={busy} onClick={more}>{busy ? 'Loading…' : 'Show more sponsor companies'}<ArrowRight size={17}/></button></div>}
