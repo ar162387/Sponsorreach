@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { ArrowUpRight, ArrowRight, MapPin, Mail, Phone, Link2, LockKeyhole, Check, Compass, X, ThumbsUp, Bookmark, BriefcaseBusiness, ShieldCheck, ExternalLink, Globe, ChevronDown, Sparkles } from 'lucide-react';
+import { ArrowUpRight, ArrowRight, MapPin, Mail, Phone, Link2, LockKeyhole, Check, Compass, X, ThumbsUp, Bookmark, BriefcaseBusiness, ShieldCheck, ExternalLink, Globe, ChevronDown, Sparkles, RefreshCw, Star } from 'lucide-react';
 import { api, type EmployerCard, type MatchSession } from '@/lib/types';
 import boardIcons from '@/lib/job-board-icons.json';
 import PersonalizedLoader from '@/components/personalized-loader';
@@ -26,12 +26,21 @@ function BoardIcon({ name }: { name: string }) {
   if (src && !failed) return <Image src={src} width={16} height={16} alt="" unoptimized onError={() => setFailed(true)}/>;
   return name === 'Website' ? <Globe size={15}/> : name === 'LinkedIn' ? <Link2 size={15}/> : <BriefcaseBusiness size={15}/>;
 }
-function Card({ employer, id, position }: { employer: EmployerCard; id: string; position: number }) {
-  const [saved, setSaved] = useState(false), [helpful, setHelpful] = useState(false), [error, setError] = useState('');
-  useEffect(() => { api('feedback', { method: 'POST', body: JSON.stringify({ session_id: id, employer_id: employer.employer_id, event: 'impression', position }) }).catch(() => {}); }, [id, employer.employer_id, position]);
+export function Card({ employer, id, position, dashboard = false, onBookmarkChange }: { employer: EmployerCard; id: string; position: number; dashboard?: boolean; onBookmarkChange?: (saved: boolean) => void }) {
+  const [saved, setSaved] = useState(!!employer.bookmarked), [helpful, setHelpful] = useState(false), [error, setError] = useState('');
+  useEffect(() => { if (dashboard) return; api('feedback', { method: 'POST', body: JSON.stringify({ session_id: id, employer_id: employer.employer_id, event: 'impression', position }) }).catch(() => {}); }, [id, employer.employer_id, position, dashboard]);
   async function feedback(event: string) {
     try { await api('feedback', { method: 'POST', body: JSON.stringify({ session_id: id, employer_id: employer.employer_id, event, position }) }); if (event === 'save') setSaved(true); if (event === 'helpful') setHelpful(true); }
     catch { setError('Your feedback couldn’t be saved. Please try again.'); }
+  }
+  const [saving, setSaving] = useState(false);
+  async function toggleBookmark() {
+    if (saving) return;
+    setSaving(true); setError('');
+    try {
+      const result = await api<{ bookmarked: boolean }>(dashboard ? `account/bookmarks/${employer.employer_id}` : `matches/${id}/bookmarks/${employer.employer_id}`, { method: 'POST', body: JSON.stringify({ saved: !saved }) });
+      setSaved(result.bookmarked); onBookmarkChange?.(result.bookmarked);
+    } catch (e) { setError((e as Error).message); } finally { setSaving(false); }
   }
   const direct = employer.channels.filter(c => c.kind === 'email' || c.kind === 'phone' || c.kind === 'address');
   const groups = new Map<string, Channel[]>();
@@ -51,7 +60,7 @@ function Card({ employer, id, position }: { employer: EmployerCard; id: string; 
     return <details className="reach-menu" key={name}><summary className="reach-route"><BoardIcon name={name}/><span>{name}</span><span className="route-count">{items.length}</span><ChevronDown size={12}/></summary><div className="reach-menu-panel">{items.map((channel,index) => employer.is_demo || channel.linkable === false ? <span key={channel.value}>{title(channel,index)}</span> : <a href={channel.value} key={channel.value} target="_blank" rel="noreferrer" onClick={() => feedback('channel_click')}>{title(channel,index)}<ArrowUpRight size={13}/></a>)}</div></details>;
   }
   return <article className="employer-card reach-card">
-    <div className="reach-card-top"><span className="reach-licence"><ShieldCheck size={14}/>{employer.is_demo ? 'Sample sponsor' : 'Licensed sponsor'}</span><button className={`reach-save ${saved ? 'selected' : ''}`} aria-label={saved ? 'Employer saved' : `Save ${employer.name}`} onClick={() => feedback('save')}><Bookmark size={18} fill={saved ? 'currentColor' : 'none'}/></button></div>
+    <div className="reach-card-top"><span className="reach-licence"><ShieldCheck size={14}/>{employer.is_demo ? 'Sample sponsor' : 'Licensed sponsor'}</span><button className={`reach-save ${saved ? 'selected' : ''}`} disabled={saving} aria-pressed={saved} aria-label={saved ? `Remove bookmark for ${employer.name}` : `Bookmark ${employer.name}`} onClick={toggleBookmark}><Bookmark size={18} fill={saved ? 'currentColor' : 'none'}/></button></div>
     <div className="reach-identity"><h3>{employer.name}</h3><p><MapPin size={13}/>{employer.town || 'UK'}</p></div>
     <div className="reach-fit"><span><Sparkles size={14}/>Why it fits</span><p>{employer.explanation.summary || employer.explanation.text.replace(/^Published business activity:\s*/, '').split(' This aligns with your interest in ')[0]}</p></div>
     {!!direct.length && <div className="reach-contacts">{direct.map(channel => {
@@ -62,13 +71,15 @@ function Card({ employer, id, position }: { employer: EmployerCard; id: string; 
     {!!websiteGroups.length && <div className="reach-route-row">{websiteGroups.map(renderGroup)}</div>}
     {!!boardGroups.length && <div className="reach-job-boards"><span className="reach-section-label">EXPLORE JOB BOARDS</span><div className="reach-route-row">{boardGroups.map(renderGroup)}</div></div>}
     {!!employer.verified_open_vacancies.length && <div className="reach-openings">{employer.verified_open_vacancies.filter(v => !employer.channels.some(c => routeKey(c.value) === routeKey(v.url))).map(v => <a href={v.url} key={v.url} target="_blank" rel="noreferrer"><BriefcaseBusiness size={14}/>{v.title}<ArrowUpRight size={13}/></a>)}</div>}
-    <div className="reach-feedback"><button className={helpful ? 'selected' : ''} onClick={() => feedback('helpful')}><ThumbsUp size={14}/>{helpful ? 'Thanks!' : 'Relevant to me'}</button><button onClick={() => feedback('not_relevant')}>Not relevant</button></div>{error && <p className="error" role="alert">{error}</p>}
+    {!dashboard && <div className="reach-feedback"><button className={helpful ? 'selected' : ''} onClick={() => feedback('helpful')}><ThumbsUp size={14}/>{helpful ? 'Thanks!' : 'Relevant to me'}</button><button onClick={() => feedback('not_relevant')}>Not relevant</button></div>}{dashboard && employer.session_id && <Link className="text-link bookmark-source" href={"/results/" + employer.session_id}>Open shortlist<ArrowUpRight size={14}/></Link>}{error && <p className="error" role="alert">{error}</p>}
   </article>;
 }
 
 export default function Results({ id }: { id: string }) {
   const [session, setSession] = useState<MatchSession | null>(null), [cards, setCards] = useState<EmployerCard[]>([]), [error, setError] = useState(''), [modal, setModal] = useState(false), [busy, setBusy] = useState(false), [cursor, setCursor] = useState<number | null>(null);
   const dialog = useRef<HTMLDialogElement>(null);
+  const [refreshEpoch, setRefreshEpoch] = useState(0);
+  const refreshKey = useRef<string | null>(null);
   useEffect(() => {
     let cancelled = false, timer: ReturnType<typeof setTimeout>, failures = 0;
     async function poll() {
@@ -87,7 +98,7 @@ export default function Results({ id }: { id: string }) {
       }
     }
     poll(); return () => { cancelled = true; clearTimeout(timer); };
-  }, [id]);
+  }, [id, refreshEpoch]);
   useEffect(() => { if (modal) dialog.current?.showModal(); else dialog.current?.close(); }, [modal]);
   async function unlock() {
     setBusy(true); setError('');
@@ -103,16 +114,36 @@ export default function Results({ id }: { id: string }) {
     try { const page = await api<{ results: EmployerCard[]; next_cursor: number | null }>(`matches/${id}/results?cursor=${cursor}`); setCards(c => [...c, ...page.results]); setCursor(page.next_cursor); }
     catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
+  async function refresh() {
+    if (busy) return;
+    setBusy(true); setError('');
+    refreshKey.current ||= crypto.randomUUID();
+    try {
+      await api(`matches/${id}/refresh`, { method: 'POST', body: JSON.stringify({ idempotency_key: refreshKey.current }) });
+      refreshKey.current = null; setCards([]); setCursor(null);
+      setSession(current => current ? { ...current, status: 'queued', stage: 'Understanding your career interests' } : current);
+      setRefreshEpoch(value => value + 1);
+    } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  }
+  async function star() {
+    if (busy) return;
+    setBusy(true); setError('');
+    try {
+      const value = await api<{ starred: boolean }>(`matches/${id}/star`, { method: 'POST', body: JSON.stringify({ saved: !session?.starred }) });
+      setSession(current => current ? { ...current, starred: value.starred } : current);
+    } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  }
   const ready = session?.status === 'ready';
   if (session?.verification_required) return <section className="loader-page shell"><Mail size={48}/><p className="eyebrow">ONE LAST STEP</p><h1>Confirm your <em>email.</em></h1><p className="muted">Your shortlist is saved. Open the confirmation link we sent to see your free sponsor previews. Use this browser to connect the link to your pending shortlist.</p><p className="email-spam-note" role="note"><strong>Check your spam or junk folder too.</strong> If the email lands there, mark it as not spam so future sign-in links reach your inbox.</p><button className="button" disabled={busy} onClick={async () => { setBusy(true); setError(''); try { const response=await fetch('/api/auth/magic-link',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:id})}); const result=await response.json(); if(!response.ok)throw new Error(result.error || 'Email could not be sent.'); setError('Confirmation email sent. Please check your inbox and spam folder.'); } catch(e){setError((e as Error).message);} finally {setBusy(false);} }}>Resend confirmation email</button>{error && <p role="status">{error}</p>}<Link className="text-button" href="/account">Already confirmed? Sign in</Link></section>;
+  if (session?.status === 'failed') return <section className="loader-page shell"><Compass size={38}/><h1>Let’s try your shortlist again.</h1><p className="muted">Your profile and saved choices are safe. Retry the search or refine this shortlist.</p><button className="button" disabled={busy} onClick={refresh}><RefreshCw size={17}/>Retry this shortlist</button><Link className="text-link" href={"/match?shortlist=" + id}>Refine this shortlist</Link>{error && <p className="error" role="alert">{error}</p>}</section>;
   if (!ready) return <PersonalizedLoader stage={session?.stage} context={session?.loading_context} error={error}/>;
   const direct = cards.filter(c => c.group === 'direct'), related = cards.filter(c => c.group === 'related');
-  return <section className="results-shell shell"><div className="results-heading"><div><p className="eyebrow"><span className="status-dot"/>RELEVANT COMPANIES. YOUR NEXT STEP.</p><h1>Your sponsor <em>shortlist.</em></h1><p className="muted">{session.total_count ? `${session.total_count} relevant sponsor ${session.total_count === 1 ? 'company' : 'companies'} to research and approach.` : 'We don’t yet have enough company evidence to recommend sponsors for this profile.'}</p></div><Link href="/match" className="button secondary">Refine my profile <ArrowUpRight size={17}/></Link></div>
+  return <section className="results-shell shell"><div className="results-heading"><div><p className="eyebrow"><span className="status-dot"/>RELEVANT COMPANIES. YOUR NEXT STEP.</p><h1>Your sponsor <em>shortlist.</em></h1><p className="muted">{session.total_count ? `${session.total_count} relevant sponsor ${session.total_count === 1 ? 'company' : 'companies'} to research and approach.` : 'We don’t yet have enough company evidence to recommend sponsors for this profile.'}</p></div><Link href={"/match?shortlist=" + id} className="button secondary">Refine this shortlist <ArrowUpRight size={17}/></Link></div>
     {session.is_demo && <div className="demo-banner"><Compass size={18}/><div><strong>Demonstration shortlist</strong><span>These sample employers, contacts, and evidence are fictional. They show how your matching experience works.</span></div></div>}
-    <div className="results-toolbar"><span>{session.access === 'preview' ? 'YOUR FREE PREVIEW' : 'YOUR SAVED SPONSOR SHORTLIST'}</span><div><span className="tag">{session.direct_count || 0} direct</span>{!!session.related_count && <span className="tag">{session.related_count} related</span>}<span className="tiny muted">Relevant companies, with supporting sources</span></div></div>
+    <div className="results-toolbar"><span>{session.access === 'preview' ? 'YOUR FREE PREVIEW' : 'YOUR SAVED SPONSOR SHORTLIST'}</span><div><button className="icon-button shortlist-refresh" disabled={busy} onClick={refresh} aria-label="Refresh companies in this shortlist" title="Run this profile against the latest company data"><RefreshCw size={17}/></button><button className={`icon-button shortlist-star ${session.starred ? 'selected' : ''}`} disabled={busy} onClick={star} aria-pressed={!!session.starred} aria-label={session.starred ? 'Unstar shortlist' : 'Star shortlist'}><Star size={17} fill={session.starred ? 'currentColor' : 'none'}/></button><span className="tag">{session.direct_count || 0} direct</span>{!!session.related_count && <span className="tag">{session.related_count} related</span>}<span className="tiny muted">Relevant companies, with supporting sources</span></div></div>
     {!!direct.length && <><div className="section-label"><h2>Companies for your target roles</h2><span>Company work that connects with your background</span></div><div className="cards-grid">{direct.map(c => <Card key={c.employer_id} employer={c} id={id} position={cards.indexOf(c)}/>)}</div></>}
     {!!related.length && <><div className="section-label"><h2>Companies for related roles</h2><span>Alternative roles you chose to include</span></div><div className="cards-grid">{related.map(c => <Card key={c.employer_id} employer={c} id={id} position={cards.indexOf(c)}/>)}</div></>}
-    {!cards.length && <div className="empty-state"><Compass size={38}/><h2>Let’s give your search more direction.</h2><p>There isn’t enough supported company information for this search yet. Try a more specific role, add your skills or responsibilities, or include related roles. This is about the information available, not your potential.</p><Link href="/match" className="button">Refine my profile <ArrowRight size={17}/></Link></div>}
+    {!cards.length && <div className="empty-state"><Compass size={38}/><h2>Let’s give your search more direction.</h2><p>There isn’t enough supported company information for this search yet. Try a more specific role, add your skills or responsibilities, or include related roles. This is about the information available, not your potential.</p><Link href={"/match?shortlist=" + id} className="button">Refine this shortlist <ArrowRight size={17}/></Link></div>}
     {!!session.locked_count && <div className="unlock-section"><div className="locked-grid" aria-hidden="true">{Array.from({ length: Math.min(3, session.locked_count) }).map((_, i) => <div className="locked-card" key={i}><div className="blur-content"><div className="fake-avatar"/><h3>A relevant sponsor company</h3><p>Reasons this company may fit</p><div className="fake-line"/><div className="fake-line short"/><span>Available outreach channels</span></div></div>)}</div><div className="unlock-callout"><span className="unlock-icon"><LockKeyhole size={22}/></span><h2>More relevant companies to reach.</h2><p>Unlock {session.locked_count} more sponsor {session.locked_count === 1 ? 'company' : 'companies'} from this saved shortlist, with available contacts and reasons each may fit.</p><button className="button" onClick={() => setModal(true)}>Unlock my full sponsor shortlist <ArrowRight size={18}/></button><small>Demo unlock · no payment details or charge</small></div></div>}
     {cursor !== null && <div className="load-more"><button className="button secondary" disabled={busy} onClick={more}>{busy ? 'Loading…' : 'Show more sponsor companies'}<ArrowRight size={17}/></button></div>}
     {session.access === 'demo_unlocked' && <div className="unlocked-notice"><Check size={17}/>Your full saved shortlist is unlocked. No payment was taken.</div>}

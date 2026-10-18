@@ -141,13 +141,13 @@ class Matcher:
         self.db.execute("insert into sm.query_cache values(%s,%s,now()+(%s*interval '1 second')) on conflict(cache_key) do update set payload=excluded.payload,expires_at=excluded.expires_at",(cache_key,Jsonb({"results":[asdict(r) for r in results],"mode":mode}),ttl))
         return results,mode,versions
 
-    def process_session(self,id):
-        row=self.db.one("select s.status,p.profile from sm_private.match_sessions s join sm_private.candidate_profiles p on p.id=s.profile_id where s.id=%s and s.expires_at>now()",(id,))
-        if not row or row["status"]=="ready":
+    def process_session(self,id,revision=0):
+        row=self.db.one("select s.status,s.revision,p.profile from sm_private.match_sessions s join sm_private.candidate_profiles p on p.id=s.profile_id where s.id=%s and s.expires_at>now()",(id,))
+        if not row or row["status"]=="ready" or row["revision"]!=revision:
             return
-        self.db.execute("update sm_private.match_sessions set status='processing' where id=%s",(id,))
+        self.db.execute("update sm_private.match_sessions set status='processing' where id=%s and revision=%s",(id,revision))
         profile=Profile.model_validate(row["profile"])
-        results,mode,versions=self.search(profile,lambda stage:self.db.execute("update sm_private.match_sessions set stage=%s where id=%s",(stage,id)))
+        results,mode,versions=self.search(profile,lambda stage:self.db.execute("update sm_private.match_sessions set stage=%s where id=%s and revision=%s",(stage,id,revision)))
         versions=dict(versions)
         if self.settings.embedding_provider=='local':
             from .prospects import ProspectLibrary,COHORT_VERSION
@@ -157,4 +157,4 @@ class Matcher:
             except (OSError,ValueError,KeyError,ProviderUnavailable):
                 # Optional analysis must not prevent delivery of a valid shortlist.
                 versions['prospect_cohorts']={'available':False,'algorithm':COHORT_VERSION,'assignments':[]}
-        self.db.save_results(id,results,mode,versions)
+        self.db.save_results(id,results,mode,versions,revision=revision)

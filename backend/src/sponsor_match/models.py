@@ -159,3 +159,13 @@ class Feedback(Model):
     event: Literal["impression", "save", "channel_click", "helpful", "not_relevant", "broken_link", "outreach", "reply", "application"]
     position: int | None = Field(default=None, ge=0, le=150)
     note: str = Field(default="", max_length=500)
+
+
+class ShortlistRefresh(Model):
+    profile: Profile | None = None
+    visa_context: VisaContext | None = None
+    idempotency_key: str = Field(min_length=16, max_length=120)
+
+
+class SavedState(Model):
+    saved: bool

@@ -12,6 +12,7 @@ export type Profile = {
   related_roles_enabled: boolean;
 };
 export type EmployerCard = {
+  bookmarked?: boolean; session_id?: string | null;
   employer_id: string; name: string; town: string; group: 'direct' | 'related';
   explanation: { text: string; summary?: string; basis: string; sources: { url: string; excerpt: string; observed_at: string }[]; skill_hits: string[] };
   tags: string[];
@@ -22,6 +23,7 @@ export type EmployerCard = {
 };
 export type LoadingContext = { roles: string[]; background: string; specialization: string; skills: string[]; locations: string[]; related_roles_enabled: boolean };
 export type MatchSession = {
+  starred?: boolean; revision?: number;
   loading_context?: LoadingContext;
   verification_required?: boolean;
   session_id: string; status: string; stage: string; access: string; error_code?: string;

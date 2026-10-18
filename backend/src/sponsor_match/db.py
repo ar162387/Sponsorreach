@@ -207,10 +207,12 @@ class Database:
         with self.transaction() as c:
             c.execute("update sm.work_items set state=%s,error_code=%s,leased_until=null,available_at=now()+(%s * interval '1 second') where id=%s",("dead" if dead else "pending",code,min(300,2**item["attempts"]),item["id"]))
             if dead and item["kind"]=="match":
-                c.execute("update sm_private.match_sessions set status='failed',error_code=%s where id=%s",(code,item["payload"]["session_id"]))
+                c.execute("update sm_private.match_sessions set status='failed',error_code=%s where id=%s and revision=%s",(code,item["payload"]["session_id"],item["payload"].get("revision",0)))
 
-    def save_results(self, id, results, mode, versions):
+    def save_results(self, id, results, mode, versions, revision=None):
         with self.transaction() as c:
+            current=c.execute("select revision from sm_private.match_sessions where id=%s for update",(id,)).fetchone()
+            if not current or (revision is not None and current['revision']!=revision):return
             c.execute("delete from sm_private.match_results where session_id=%s",(id,))
             for i,result in enumerate(results):
                 c.execute("insert into sm_private.match_results values(%s,%s,%s,%s,%s,%s,%s,%s)",(id,result.employer_id,i,result.group,result.score,Jsonb(result.features),Jsonb(result.explanation),result.employer_version))

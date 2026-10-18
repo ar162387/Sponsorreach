@@ -49,7 +49,7 @@ def worker(db,settings,once=False):
         idle_delay=.3
         try:
             if item["kind"]=="match":
-                matcher.process_session(item["payload"]["session_id"])
+                matcher.process_session(item["payload"]["session_id"],revision=item["payload"].get("revision",0))
             elif item["kind"]=="build_prospects":
                 from .prospects import build_model,publish_model,model_root
                 archive=Path(__file__).resolve().parents[3]/'data/taxonomies/ons-extended-soc-20260827.zip'

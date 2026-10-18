@@ -262,7 +262,7 @@ def test_refinement_reuses_verified_account_identity(integration,monkeypatch):
         overview=client.get('/api/account/overview',headers=headers).json()
         assert overview['first_name']=='Returning' and overview['sessions'][0]['id']==id
         assert overview['sessions'][0]['roles']==['Mechanical engineer']
-        assert set(overview)=={'first_name','profile','sessions'}
+        assert set(overview)=={'first_name','profile','sessions','bookmarks'}
         assert 'refine@example.com' not in str(overview) and 'visa_context' not in str(overview)
         context=client.get('/api/matches/'+id,headers=headers).json()['loading_context']
         assert context['roles']==['Mechanical engineer'] and context['skills']==['CAD']
@@ -281,7 +281,7 @@ def test_refinement_reuses_verified_account_identity(integration,monkeypatch):
         # A different signed-in account never inherits a previous user's name.
         account.update(id=str(uuid4()),email="another@example.com")
         other_overview=client.get('/api/account/overview',headers=headers).json()
-        assert other_overview=={'first_name':None,'profile':None,'sessions':[]}
+        assert other_overview=={'first_name':None,'profile':None,'sessions':[],'bookmarks':[]}
         other_profile=client.get('/api/account/profile',headers=headers).json()
         assert other_profile['profile'] is None and other_profile['account_key']!=restored['account_key']
         refined["idempotency_key"]=str(uuid4())
@@ -399,8 +399,69 @@ def test_personal_overview_excludes_expired_searches(integration,monkeypatch):
         assert len(result['sessions'])==1 and 'Private test context' not in str(result)
         row=auth_db.one('select profile_id from sm_private.match_sessions where id=%s',(session,))
         auth_db.execute("update sm_private.candidate_profiles set expires_at=now()-interval '1 second' where id=%s",(row['profile_id'],))
-        assert client.get('/api/account/overview',headers=headers).json()=={'first_name':None,'profile':None,'sessions':[]}
+        assert client.get('/api/account/overview',headers=headers).json()=={'first_name':None,'profile':None,'sessions':[],'bookmarks':[]}
         # Isolate this expired synthetic profile from subsequent worker/retention checks.
         auth_db.execute('delete from sm.work_items where dedupe_key=%s',('match:'+session,))
         auth_db.execute('delete from sm_private.match_sessions where id=%s',(session,))
         auth_db.execute('delete from sm_private.candidate_profiles where id=%s',(row['profile_id'],))
+
+
+def test_workspace_profiles_refresh_stars_and_bookmarks(integration,monkeypatch):
+    from dataclasses import replace
+    from unittest.mock import Mock
+    from sponsor_match.search import Matcher
+    db,settings,_=integration
+    account={'id':str(uuid4()),'email':'workspace@example.invalid','email_confirmed_at':'2026-10-18T00:00:00Z'}
+    response=Mock();response.json.side_effect=lambda:dict(account);response.raise_for_status.return_value=None
+    monkeypatch.setattr('sponsor_match.api.httpx.get',lambda *a,**k:response)
+    config=replace(settings,require_verified_email=True,supabase_url='https://auth.example',supabase_publishable_key='test')
+    headers={'X-Session-Token':uuid4().hex*2,'Authorization':'Bearer test'}
+    matcher=Matcher(db,config)
+    with TestClient(create_app(config,Database(settings.database_url))) as client:
+        first=client.post('/api/matches',headers=headers,json=request()).json()['session_id']
+        second_body=request();second_body['profile']['background']['subject']='Software engineering'
+        second=client.post('/api/matches',headers=headers,json=second_body).json()['session_id']
+        matcher.process_session(first);matcher.process_session(second)
+        assert client.get('/api/account/profile?session_id='+first,headers=headers).json()['profile']['background']['subject']=='Mechanical Engineering'
+        assert client.get('/api/account/profile?session_id='+second,headers=headers).json()['profile']['background']['subject']=='Software engineering'
+        assert client.post(f'/api/matches/{first}/star',headers=headers,json={'saved':True}).json()=={'starred':True}
+        overview=client.get('/api/account/overview',headers=headers).json()
+        assert overview['sessions'][0]['id']==first and overview['sessions'][0]['starred']
+        results=client.get(f'/api/matches/{first}/results',headers=headers).json()['results']
+        eid=results[0]['employer_id']
+        locked=str(db.one('select employer_id from sm_private.match_results where session_id=%s and rank>=3 limit 1',(first,))['employer_id'])
+        assert client.post(f'/api/matches/{first}/bookmarks/{locked}',headers=headers,json={'saved':True}).status_code==404
+        for _ in range(2):assert client.post(f'/api/matches/{first}/bookmarks/{eid}',headers=headers,json={'saved':True}).json()=={'bookmarked':True}
+        overview=client.get('/api/account/overview',headers=headers).json()
+        assert [e['employer_id'] for e in overview['bookmarks']]==[eid]
+        assert client.get(f'/api/matches/{first}/results',headers=headers).json()['results'][0]['bookmarked']
+        client.post(f'/api/matches/{first}/demo-unlock',headers=headers,json={})
+        key=str(uuid4());body={'idempotency_key':key}
+        assert client.post(f'/api/matches/{first}/refresh',headers=headers,json=body).status_code==202
+        assert client.post(f'/api/matches/{first}/refresh',headers=headers,json=body).status_code==202
+        assert db.one('select revision from sm_private.match_sessions where id=%s',(first,))['revision']==1
+        assert client.post(f'/api/matches/{first}/refresh',headers=headers,json={'idempotency_key':str(uuid4())}).status_code==409
+        # An old worker cannot publish over the newer refresh.
+        db.save_results(first,[],'stale',{},revision=0)
+        assert client.get(f'/api/matches/{first}',headers=headers).json()['status']=='queued'
+        matcher.process_session(first,revision=1)
+        saved=client.get(f'/api/matches/{first}',headers=headers).json()
+        assert saved['access']=='demo_unlocked' and saved['starred'] and saved['revision']==1
+        assert client.get('/api/account/overview',headers=headers).json()['bookmarks'][0]['employer_id']==eid
+        # Refinement updates the same shortlist while preserving the other profile.
+        updated=request()['profile'];updated['background']['subject']='Mechanical design'
+        assert client.post(f'/api/matches/{first}/refresh',headers=headers,json={'idempotency_key':str(uuid4()),'profile':updated}).status_code==202
+        assert client.get('/api/account/profile?session_id='+first,headers=headers).json()['profile']['background']['subject']=='Mechanical design'
+        assert client.get('/api/account/profile?session_id='+second,headers=headers).json()['profile']['background']['subject']=='Software engineering'
+        matcher.process_session(first,revision=2)
+        other=dict(account);account['id']=str(uuid4())
+        assert client.post(f'/api/matches/{first}/star',headers=headers,json={'saved':False}).status_code==404
+        assert client.post(f'/api/matches/{first}/refresh',headers=headers,json={'idempotency_key':str(uuid4())}).status_code==403
+        assert client.get('/api/account/profile?session_id='+first,headers=headers).status_code==404
+        assert client.get('/api/account/overview',headers=headers).json()['bookmarks']==[]
+        account.update(other)
+        assert client.post(f'/api/account/bookmarks/{eid}',headers=headers,json={'saved':False}).json()=={'bookmarked':False}
+        assert client.get('/api/account/overview',headers=headers).json()['bookmarks']==[]
+        # Feedback remains independently recorded for a later admin view.
+        assert client.post('/api/feedback',headers=headers,json={'session_id':first,'employer_id':eid,'event':'not_relevant'}).status_code==201
+        assert db.one("select count(*) n from sm_private.feedback_events where session_id=%s and event='not_relevant'",(first,))['n']==1

@@ -1,9 +1,17 @@
 'use client';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { ChevronDown, LogOut, ArrowUpRight } from 'lucide-react';
 
 export default function AccountNav({ signedIn }: { signedIn: boolean }) {
+  const menu = useRef<HTMLDivElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  useEffect(() => {
+    const outside = (event: PointerEvent) => { if (!menu.current?.contains(event.target as Node)) setMenuOpen(false); };
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') setMenuOpen(false); };
+    document.addEventListener('pointerdown', outside); document.addEventListener('keydown', escape);
+    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); };
+  }, []);
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   useEffect(() => {
     let checking = false, active = true;
@@ -37,8 +45,8 @@ export default function AccountNav({ signedIn }: { signedIn: boolean }) {
     {!signedIn && <Link href="/about#how-it-works" className="nav-link marketing-nav">How it works</Link>}
     {signedIn ? <>
       <Link href="/" className="nav-link">My dashboard</Link>
-      <details className="account-menu"><summary><span className="status-dot"/>My account<ChevronDown size={14}/></summary><div className="account-menu-panel"><span className="account-state">Signed in</span><Link href="/account">My sponsor shortlists</Link><Link href="/match">Refine my profile</Link><Link href="/about">About SponsorReach</Link><button disabled={busy} onClick={signOut}><LogOut size={15}/>{busy ? 'Signing out…' : 'Sign out'}</button>{error && <p role="alert" className="error">{error}</p>}</div></details>
+      <div ref={menu} className="account-menu" onMouseEnter={() => setMenuOpen(true)} onMouseLeave={() => setMenuOpen(false)} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setMenuOpen(false); }}><button type="button" className="account-menu-trigger" aria-expanded={menuOpen} aria-controls="account-menu-panel" onClick={() => setMenuOpen(true)}><span className="status-dot"/>My account<ChevronDown size={14}/></button>{menuOpen && <div id="account-menu-panel" className="account-menu-panel" onClick={() => setMenuOpen(false)}><span className="account-state">Signed in</span><Link href="/account">My sponsor shortlists</Link><Link href="/match?new=1">Search another profile</Link><Link href="/about">About SponsorReach</Link><button disabled={busy} onClick={signOut}><LogOut size={15}/>{busy ? 'Signing out…' : 'Sign out'}</button>{error && <p role="alert" className="error">{error}</p>}</div>}</div>
     </> : <Link href="/account" className="nav-signin">Sign in</Link>}
-    <Link className="button small" href="/match">{signedIn ? 'Refine search' : 'Find my sponsors'}<ArrowUpRight size={16}/></Link>
+    <Link className="button small" href={signedIn ? "/match?new=1" : "/match"}>{signedIn ? 'New search' : 'Find my sponsors'}<ArrowUpRight size={16}/></Link>
   </nav>;
 }

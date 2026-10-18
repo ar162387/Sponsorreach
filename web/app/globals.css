@@ -632,3 +632,23 @@ input:not([type=checkbox]),textarea,select { font-size:16px; padding:13px; }
 @media(max-width:700px) { .dashboard-grid { grid-template-columns:1fr; gap:16px; } .dashboard-heading { align-items:flex-start; flex-direction:column; } .dashboard-profile,.dashboard-next { padding:24px; } .personal-nav { gap:12px!important; } .account-menu,.personal-nav .nav-signin { font-size:12px; } }
 @media(max-width:420px) { .personal-nav { gap:8px!important; } .account-menu>summary { gap:4px; font-size:11px; } .account-menu>summary .status-dot { display:none; } .header .button { padding:9px 7px; } }
 .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+
+/* Personal workspace: each search has its own profile and saved state. */
+.account-menu-trigger { display:flex; align-items:center; gap:7px; border:0; padding:8px 0; background:none; color:var(--ink); font:inherit; font-weight:700; cursor:pointer; white-space:nowrap; }
+.account-menu-panel { top:100%; }
+.account-menu-panel::before { content:''; position:absolute; height:12px; left:0; right:0; top:-12px; }
+.account-menu-trigger:focus-visible,.shortlist-star:focus-visible,.shortlist-refresh:focus-visible { outline:2px solid var(--teal); outline-offset:4px; }
+.shortlist-star.selected,.shortlist-star[aria-pressed=true] { color:#93700c; background:#fff9e9; }
+.shortlist-refresh { color:var(--teal); border:1px solid var(--line); border-radius:50%; width:34px; height:34px; }
+.shortlist-refresh:hover { background:var(--pale); }
+.form-actions { flex-wrap:wrap; }
+.reset-profile { font-size:13px; color:var(--muted); }
+.history-main { flex:1; min-width:0; }
+.history-main>span { color:var(--muted); font-size:13px; }
+.starred-shortlist { border-color:#d5c78e; background:#fffefa; }
+.shortlist-group-label { display:flex; align-items:center; gap:8px; font-size:15px; margin:26px 0 10px; }
+.dashboard-section-heading h2 { display:flex; align-items:center; gap:10px; }
+.dashboard-empty-note { padding:22px; border:1px dashed var(--line); border-radius:12px; color:var(--muted); }
+.dashboard-bookmarks { margin-bottom:30px; }
+.bookmark-source { margin-top:20px; }
+@media(max-width:700px) { .account-menu-trigger { font-size:12px; } .results-toolbar>div { flex-wrap:wrap; } .form-actions { gap:14px; } .history-main { flex-basis:60%; } }

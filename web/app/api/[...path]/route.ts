@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { apiBase, gatewayHeaders, sameOrigin } from '@/lib/server';
 
 export const dynamic = 'force-dynamic';
-const allowed = /^(catalogue\/status|profiles\/(?:normalize|suggestions)|matches(?:\/history|\/[a-f0-9-]{36}(?:\/results|\/demo-unlock)?)?|feedback|account\/(?:matches|identity|profile|overview))$/;
+const allowed = /^(catalogue\/status|profiles\/(?:normalize|suggestions)|matches(?:\/history|\/[a-f0-9-]{36}(?:\/results|\/demo-unlock|\/refresh|\/star|\/bookmarks\/[a-f0-9-]{36})?)?|feedback|account\/(?:matches|identity|profile|overview|bookmarks\/[a-f0-9-]{36}))$/;
 async function proxy(request: Request, context: { params: Promise<{ path: string[] }> }) {
   const { path } = await context.params;
   const target = path.join('/');
