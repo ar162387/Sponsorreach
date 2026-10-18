@@ -35,6 +35,8 @@ db = Database(runtime['DATABASE_URL'])
 db.open()
 try:
     profile = Profile.model_validate({'background': {'subject': 'Computer science', 'specialization': 'Software development'}, 'role_intents': [{'raw_label': 'software developer', 'confirmed': True}], 'career_stage': 'graduate', 'skills': [{'label': 'Python'}, {'label': 'SQL'}], 'experience_summary': 'Built and tested a database-backed web application.', 'location': {'preferred_regions': ['London'], 'relocate': True}, 'preferred_industries': ['Software'], 'related_roles_enabled': False})
+    if len(sys.argv) > 1:
+        profile.experience_summary += ' ' + sys.argv[1]
     started = time.monotonic()
     owner = secrets.token_urlsafe(40)
     payload = {'profile': profile.model_dump(), 'identity': {'name': 'Deployment smoke check', 'email': 'deployment-check@example.invalid'}, 'idempotency_key': 'deployment-' + uuid4().hex}

@@ -13,7 +13,8 @@ from urllib.parse import urlparse
 origin = json.loads(Path('/etc/sponsorreach/runtime.json').read_text())['APP_ORIGIN']
 host = urlparse(origin).hostname
 assert host and all(c.isalnum() or c in '.-' for c in host)
-Path('/etc/caddy/Caddyfile').write_text(host + ' {\n encode gzip\n reverse_proxy 127.0.0.1:3000\n}\n')
+private_preview = ' header X-Robots-Tag \"noindex, nofollow\"\n' if host.endswith('.sslip.io') else ''
+Path('/etc/caddy/Caddyfile').write_text(host + ' {\n encode gzip\n' + private_preview + ' reverse_proxy 127.0.0.1:3000\n}\n')
 PY
 caddy validate --config /etc/caddy/Caddyfile
 systemctl enable caddy
