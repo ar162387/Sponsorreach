@@ -197,3 +197,9 @@ All-facet experimental coverage reached 4,620 employers after evidence-relation 
 ## Evidence alternatives and private cohorts — 17 October
 
 142 backend tests pass. The semantic experiment now checks multiple source alternatives; reach remains incomplete at 4,618/7,309 employers. Versioned derived-interest cohorts are stored privately, refreshed after prospect-model publication, and aggregated without owner/session identifiers. The two existing ready sessions were associated while exact ranking/access/ownership checks stayed unchanged; a background refresh completed successfully. A local NLI probe failed the diagnostic comparison and remains disabled. Current allowlisted operator dashboard: http://127.0.0.1:4019/. See [PROSPECT_COVERAGE.md](docs/PROSPECT_COVERAGE.md).
+
+## Skills and search-quality lab — 18 October
+
+The local candidate uses the full pinned ESCO occupation/skill resource and recorded company spans, with explicit task context, typed knowledge relationships and source-version checks. It remains behind a feature flag; the hosted pilot ranker has not been replaced. See [SKILL_MATCHING.md](docs/SKILL_MATCHING.md).
+
+The private relevance lab compares identical frozen profiles, collects blinded pooled reviews, calculates per-query and occupational-slice metrics, and traces retrieval/fusion/gate/ranking failures. The current local comparison contains 299 profiles across three versions. AI development judgments are distinct from human validation. See [RELEVANCE_EVALUATION.md](docs/RELEVANCE_EVALUATION.md) for research, metric definitions, commands and limitations. Reports and employer data remain outside Git.

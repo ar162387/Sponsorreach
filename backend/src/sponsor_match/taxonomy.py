@@ -136,7 +136,7 @@ class Taxonomy:
                 concept = self.resolve(role.raw_label)
                 if role.concept_id and (not concept or concept.id != role.concept_id):
                     role = role.model_copy(update={"concept_id": None, "confirmed": False})
-                if key(role.raw_label) in {"analyst", "engineer", "consultant", "manager", "business", "graduate"}:
+                if key(role.raw_label) in {"analyst", "engineer", "consultant", "manager", "business", "graduate"} and not (profile.skills or profile.experience_summary):
                     clarification = f"Which area of {role.raw_label.lower()} work interests you? For example, a specialization or the tasks you want to do."
                 suggestions.append(role.model_copy(update={"concept_id": concept.id if concept else None}))
         return {"role_intents": [s.model_dump() for s in suggestions], "clarification": clarification, "taxonomy_version": self.version, "unknown_roles": [s.raw_label for s in suggestions if not s.concept_id]}

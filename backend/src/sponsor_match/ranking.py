@@ -135,12 +135,14 @@ class Ranked:
     employer_version: str
 
 
-def rank(employer: Employer, profile: Profile, taxonomy: Taxonomy, active_snapshot: str, semantic=0., at=None):
+def rank(employer: Employer, profile: Profile, taxonomy: Taxonomy, active_snapshot: str, semantic=0., at=None, graph_paths=None, diagnostic=None):
     at = at or datetime.now(UTC)
     channels = usable_channels(employer, at)
     if employer.identity_status != "accepted" or not channels or not sponsor_valid(employer, active_snapshot, at):
+        if diagnostic is not None:diagnostic['reason']='identity' if employer.identity_status!='accepted' else 'channel' if not channels else 'sponsor_membership'
         return None
     if profile.location.strict and employer.workplace_locations and not profile.location.relocate and profile.location.preferred_regions and not any(contains(loc, p) for loc in employer.workplace_locations for p in profile.location.preferred_regions):
+        if diagnostic is not None:diagnostic['reason']='known_workplace_constraint'
         return None
     claims = [c for c in employer.claims if accepted(c, at)]
     best = None
@@ -155,11 +157,12 @@ def rank(employer: Employer, profile: Profile, taxonomy: Taxonomy, active_snapsh
             targets = [(None, "direct")]
         for target, group in targets:
             supported = []; spans_by_id={}
+            paths=graph_paths.get(intent.raw_label) if graph_paths is not None and group=='direct' else None
             modifiers=distinctive_modifiers(intent,target,taxonomy) if group=='direct' else []
             for c in claims:
                 if c.kind not in {'activity','function','historical_role'}:continue
-                spans=supporting_spans(c,intent,target,taxonomy)
-                if modifiers:
+                spans=[p['span'] for p in paths if p['claim_id']==c.id] if paths is not None else supporting_spans(c,intent,target,taxonomy)
+                if modifiers and paths is None:
                     context=[w for w in key(profile.background.specialization).split() if len(w)>4 and taxonomy.token_frequency.get(w,0)<10]
                     spans=[span for span in spans if all(contains(span,w) for w in modifiers) or any(contains(span,w) for w in context)]
                 if spans:supported.append(c);spans_by_id[c.id]=spans
@@ -169,6 +172,8 @@ def rank(employer: Employer, profile: Profile, taxonomy: Taxonomy, active_snapsh
             explicit = list({key(s):s for s in [s.label for s in profile.skills] + profile.certifications}.values())
             skill_hits = [s for s in explicit if any(contains(span, s) for c in supported for span in spans_by_id[c.id])]
             task = min(1.,len(skill_hits)/3.)
+            if paths:
+                task=max(task,max(p.get('user_task_alignment',0.) for p in paths))
             prefs = .5
             if employer.workplace_locations and profile.location.preferred_regions:
                 prefs = float(any(contains(loc, p) for loc in employer.workplace_locations for p in profile.location.preferred_regions))
@@ -179,12 +184,22 @@ def rank(employer: Employer, profile: Profile, taxonomy: Taxonomy, active_snapsh
                 preference_signals.append(1. if any(contains(span,p) for c in supported for span in spans_by_id[c.id] for p in ["graduate","trainee","junior","entry level"]) else .5)
             prefs=sum(preference_signals)/len(preference_signals)
             q = max(QUALITY[c.source_kind] for c in supported)
+            chosen = max(supported, key=lambda c: (QUALITY[c.source_kind], c.kind in {"function", "historical_role"}))
+            if paths and explicit:
+                by_id={c.id:c for c in supported}
+                strongest=max(paths,key=lambda p:p.get('user_task_alignment',0.)+.15*QUALITY[by_id[p['claim_id']].source_kind])
+                chosen=by_id[strongest['claim_id']]
+                q=QUALITY[chosen.source_kind]
+                roles=1. if chosen.kind in {'function','historical_role'} else .8
             action = 1. if any(c.kind in {"email", "careers"} for c in channels) else .6
             matching_jobs = [v for v in open_jobs(employer, at) if target and target.id in v.concept_ids]
             score = q*(.40*roles+.25*task+.20*max(0.,min(1.,intent_semantic))+.10*prefs)+.05*action+.03*bool(matching_jobs)
+            if paths and explicit:
+                # The role supplies context; supported candidate tasks dominate
+                # this model when explicit professional skills are available.
+                score=(.65+.35*q)*(.20*roles+.50*task+.15*max(0.,min(1.,intent_semantic))+.10*prefs)+.05*action+.03*bool(matching_jobs)
             if group == "related":
                 score *= .9
-            chosen = max(supported, key=lambda c: (QUALITY[c.source_kind], c.kind in {"function", "historical_role"}))
             phrase = {"historical_role": "Previously observed role", "function": "Published professional function", "activity": "Published business activity", "skill": "Published professional skill"}.get(chosen.kind, "Published evidence")
             reason = f"{phrase}: {'; '.join(spans_by_id[chosen.id][:2]).rstrip('. ')}. This aligns with your interest in {(target.label if group=='related' and target else intent.raw_label).lower()}."
             if chosen.source_kind=='provided_csv':
@@ -193,8 +208,19 @@ def rank(employer: Employer, profile: Profile, taxonomy: Taxonomy, active_snapsh
             if group == "related":
                 reason = f"Related career: {target.label}. " + reason + f" This is an alternative to {intent.raw_label}, not the same role."
             features = {"role": roles, "task": task, "semantic": intent_semantic, "preference": prefs, "quality": q, "action": action, "verified_matching_vacancy": bool(matching_jobs), "intent": intent.raw_label}
+            relationship=None
+            if paths:
+                path=max((p for p in paths if p['claim_id']==chosen.id),key=lambda p:p.get('user_task_alignment',0.)+.2*p['path']['similarity'])
+                relationship={**path['description'],'graph_path':path['path']}
+                features['occupation_graph']=relationship
+                span=path['span'].rstrip('. ')
+                if relationship['relation'] in {'occupational_task','explicit_task'}:
+                    reason=f"Its recorded work includes {span}. This connects with {relationship['skill']} in your professional interests."
+                else:
+                    reason=f"Its recorded role history includes {span}, which connects with your interest in {intent.raw_label.lower()}."
             result = Ranked(employer.id, group, score, features,
                 {"text": reason, "claim_ids": [c.id for c in supported], "evidence_ids": [digest(["claim",employer.id,c.model_dump(mode="json")]) for c in supported], "sources": [{"url": c.source_url, "excerpt": c.excerpt, "matched_spans": spans_by_id[c.id][:2], "observed_at": c.observed_at.isoformat() if c.observed_at else None,"kind":c.source_kind} for c in supported[:3]], "skill_hits": skill_hits, "basis": chosen.kind}, employer.version)
+            if relationship:result.explanation['derived_relationship']=relationship
             if best is None or (group == "direct" and best.group == "related") or (group == best.group and score > best.score):
                 best = result
     return best

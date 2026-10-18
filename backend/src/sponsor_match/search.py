@@ -14,8 +14,12 @@ class Matcher:
     def __init__(self, db, settings):
         self.db,self.settings = db,settings
         self.provider = embedding_provider(settings)
+        from .role_graph import RoleGraph
+        self.role_graph=RoleGraph(settings)
 
-    def search(self, profile, progress=lambda _: None):
+    def search(self, profile, progress=lambda _: None, trace=None):
+        # Operator-only diagnostics; never included in the public result contract.
+        if trace is not None:trace.update(branches=[],gate_rejections={})
         taxonomy = self.db.taxonomy()
         context=self.db.one("""select
             (select max(updated_at) from sm.employers) revision,
@@ -26,10 +30,12 @@ class Matcher:
         column=embedding_column(self.settings)
         active_index=context['active_index']
         versions = {"ranking":RANKING_VERSION,"taxonomy":taxonomy.version,"catalogue":revision,"snapshot":context["snapshot"] or "","demo_snapshot":context["demo_snapshot"] or "","embedding":self.settings.embedding_model,"index":str(active_index['id']) if active_index else None}
+        graph_ready=self.settings.role_graph_enabled and self.settings.embedding_provider=='local' and self.role_graph.load()
+        if graph_ready:versions.update(ranking='evidence-12-skills-context-graph-16',role_graph=self.role_graph.version)
         index_ready=bool(active_index and active_index['model']==self.settings.embedding_model and active_index['dimensions']==self.settings.dimensions and self.db.one(f"select exists(select 1 from sm.search_index_documents e join sm.search_documents d on d.id=e.document_id and d.content_hash=e.content_hash where e.index_id=%s and d.published and d.sponsor_eligible and e.{column} is not null) ready",(active_index['id'],))['ready'])
         cache_key = digest([profile.model_dump(),versions,bool(self.settings.openai_api_key),index_ready,self.settings.environment])
         cached = self.db.one("select payload from sm.query_cache where cache_key=%s and expires_at>now()",(cache_key,))
-        if cached:
+        if cached and trace is None:
             return [Ranked(**r) for r in cached["payload"]["results"]],cached["payload"]["mode"],versions
         branches, similarities = [],{}
         def retrieval_label(intent):
@@ -73,25 +79,64 @@ class Matcher:
         with ThreadPoolExecutor(max_workers=min(4,len(tasks))) as executor:
             for i,kind,rows in executor.map(retrieve,tasks):
                 branches.append(('concept' if kind=='related_concept' else kind,[str(r["employer_id"]) for r in rows]))
+                if trace is not None:trace['branches'].append({'intent':profile.role_intents[i].raw_label,'branch':kind,'employer_ids':[str(r['employer_id']) for r in rows]})
                 if kind in {"function","activity"}:
                     for row in rows:
                         intent_similarities=similarities.setdefault(str(row["employer_id"]),{})
                         label=profile.role_intents[i].raw_label
                         intent_similarities[label]=max(intent_similarities.get(label,0.),1-row["distance"])
         progress("Checking professional relevance")
-        candidates=self.db.employers(rrf(branches))
+        graph_support={};resolved={};graph_ids=[]
+        if graph_ready and vectors:
+            try:
+                professional_context='; '.join([profile.background.subject,profile.background.specialization,profile.experience_summary,*[s.label for s in profile.skills]])
+                from .role_graph import relation_templates,RELATION_DUTIES
+                import numpy as np
+                offset=len(profile.role_intents)+len(profile.skills)
+                graph_vectors=self.provider.embeddings([r.raw_label for r in profile.role_intents]+[s.label for s in profile.skills]+[professional_context]+[t for s in profile.skills for t in relation_templates(s.label)])
+                skill_vectors=graph_vectors[len(profile.role_intents):offset]
+                relations=np.asarray(graph_vectors[offset+1:]).reshape(len(profile.skills),len(RELATION_DUTIES),self.settings.dimensions)
+                graph_ids,graph_support,resolved=self.role_graph.retrieve(profile,graph_vectors[:len(profile.role_intents)],skill_vectors,graph_vectors[offset],relations)
+                for rows in graph_support.values():
+                    for paths in rows.values():
+                        for path in paths:
+                            path['description']=self.role_graph.describe(path)
+                            sid=path['path'].get('skill_id')
+                            if path['path']['relation']=='explicit_task':path['user_task_alignment']=max(0.,min(1.,(path['raw_skill_alignment']-.35)/.55))
+                            if sid and skill_vectors:
+                                import numpy as np
+                                bundle=self.role_graph.library.bundle
+                                vector=bundle['skill_vectors'][bundle['skill_index'][sid]]
+                                similarity=float(np.max(np.asarray(skill_vectors)@vector))
+                                path['user_task_alignment']=max(0.,min(1.,(.3*similarity+.7*path.get('raw_skill_alignment',0.)-.35)/.55))
+            except ProviderUnavailable:
+                mode='lexical_concept_fallback'
+        combined=rrf(branches+[('concept',graph_ids)])
+        if trace is not None:
+            trace.update(retrieval_ids=list(combined),graph_ids=graph_ids,resolved_intents=resolved)
+        candidates=self.db.employers(combined)
         results=[]
         for employer in candidates:
             if employer.is_demo and self.settings.environment=="production":
+                if trace is not None:trace['gate_rejections'][employer.id]='demo_in_production'
                 continue
             snapshot=versions["demo_snapshot"] if employer.is_demo else versions["snapshot"]
-            result=rank(employer,profile,taxonomy,snapshot,similarities.get(employer.id,{}))
+            paths=self.role_graph.accepted_support(employer,graph_support.get(employer.id,{})) if resolved or employer.id in graph_support else None
+            if paths is not None:
+                # An empty path is an explicit abstention for a resolved intent.
+                for label in resolved:paths.setdefault(label,[])
+            diagnostic={} if trace is not None else None
+            result=rank(employer,profile,taxonomy,snapshot,similarities.get(employer.id,{}),graph_paths=paths,diagnostic=diagnostic)
             if result:
                 results.append(result)
+            elif trace is not None:trace['gate_rejections'][employer.id]=diagnostic.get('reason','professional_alignment')
         progress("Ranking your shortlist")
         direct=interleave_intents([r for r in results if r.group=="direct"],profile.role_intents,100)
         related=sorted([r for r in results if r.group=="related"],key=lambda r:(-r.score,r.employer_id))[:50]
         results=direct+related
+        if trace is not None:
+            trace['eligible_ids']=[r.employer_id for r in results]
+            trace['cache_bypassed']=True
         ttl=300 if mode=="lexical_concept_fallback" else 86400
         self.db.execute("insert into sm.query_cache values(%s,%s,now()+(%s*interval '1 second')) on conflict(cache_key) do update set payload=excluded.payload,expires_at=excluded.expires_at",(cache_key,Jsonb({"results":[asdict(r) for r in results],"mode":mode}),ttl))
         return results,mode,versions

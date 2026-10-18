@@ -60,6 +60,28 @@ def artifact(db,path,kind,namespace,url="",publication_date=None,metadata=None):
     return id
 
 
+def preserve_csv_context(db, employer_id, artifact_id, record_key, row):
+    """Keep the judge's rationale as context, never as an asserted business activity.
+
+    Reasoning can describe rejected lookalikes and superseded contacts. Preserving
+    its exact wording and field references supports attribution review without
+    adding those rejected entities to the semantic index.
+    """
+    reference=f'urn:sponsorreach:csv:{artifact_id}:{record_key}:'
+    for column in ('Reasoning', 'Tags', 'Indicative Tags', 'Job Tags', 'Evidence URLs', 'Field States'):
+        value=clean(row.get(column))
+        if not value:
+            continue
+        payload={'source_artifact_id':artifact_id,'record_key':record_key,
+                 'source_column':column,'raw_value':value,
+                 'interpretation':'identity_and_extraction_context' if column=='Reasoning' else 'source_field',
+                 'professional_claim':False}
+        db.execute("insert into sm.observations values(%s,%s,%s,%s,%s,%s,%s,%s) on conflict(id) do nothing",
+                   (digest(['csv-context-1',artifact_id,record_key,column,value]),employer_id,
+                    'csv_context:'+column,'found',reference+column.replace(' ','_'),
+                    timestamp(row.get('Observed At')),Jsonb(payload),'csv-context-1'))
+
+
 def import_csv(db,path,namespace):
     baseline_enabled=db.one("select exists(select 1 from sm.source_artifacts where namespace=%s and kind='historical_csv' and metadata->>'matching_policy'='provided-csv-baseline-1') enabled",(namespace,))['enabled']
     with Path(path).open(newline="",encoding="utf-8-sig") as f:
@@ -122,6 +144,7 @@ def import_csv(db,path,namespace):
         db.save_employer(employer,taxonomy)
         db.execute("update sm.import_dispositions set status='restored' where namespace=%s and record_key=%s",(namespace,source_key))
         db.execute("insert into sm.source_records values(%s,%s,%s) on conflict do nothing",(artifact_id,source_key,Jsonb(row)))
+        preserve_csv_context(db,id,artifact_id,source_key,row)
         imported+=1
     reconcile_memberships(db)
     result={"imported":imported,"archived_no_route":archived,"raw_rows":len(rows),"conflicts":conflicts,"duplicate_identity_groups":sum(v>1 for v in duplicates.values()),"accepted_claims":0,"note":"Historical observations retained; no current vacancies or contacts verified by import."}

@@ -100,6 +100,7 @@ def main():
     p=sub.add_parser('activate-csv-baseline');p.add_argument('path');p.add_argument('--namespace',required=True);p.add_argument('--output',required=True)
     p=sub.add_parser('benchmark-prospects');p.add_argument('--output',required=True);p.add_argument('--concurrency',type=int,default=2);p.add_argument('--labels')
     p=sub.add_parser('build-prospects');p.add_argument('--output',default='../data/prospects');p.add_argument('--occupation-archive',default='../data/taxonomies/ons-extended-soc-20260827.zip');p.add_argument('--publish',action='store_true')
+    p=sub.add_parser('build-role-graph');p.add_argument('--prospect-folder',required=True);p.add_argument('--output',required=True);p.add_argument('--publish',action='store_true')
     p=sub.add_parser('publish-prospects');p.add_argument('folder')
     p=sub.add_parser('cohort-report');p.add_argument('--output',required=True)
     p=sub.add_parser('refresh-cohorts');p.add_argument('--limit',type=int,default=100)
@@ -125,6 +126,13 @@ def main():
         Path(args.output).write_text(json.dumps(report,indent=2)+'\n')
         print(json.dumps({k:v for k,v in report.items() if k not in {'records','possible_name_town_duplicate_groups'}},indent=2));return
     settings=Settings.from_env()
+    if args.command=='build-role-graph':
+        from .role_graph import build
+        result=build(settings,args.prospect_folder,args.output)
+        if args.publish:
+            pointer=Path(args.output)/'active.json';temp=pointer.with_suffix('.tmp')
+            temp.write_text(json.dumps({'version':result['version']}));temp.replace(pointer)
+        print(json.dumps(result,indent=2));return
     if args.command=='embedding-check':
         from .providers import embedding_provider
         started=time.perf_counter()

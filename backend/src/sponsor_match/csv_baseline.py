@@ -5,7 +5,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
-from .ingest import clean,timestamp,reconcile_memberships,url_kind
+from .ingest import clean,timestamp,reconcile_memberships,url_kind,preserve_csv_context
 from .intelligence import digest
 from .models import Claim,Channel
 from .quality import present,channel_shape
@@ -44,6 +44,7 @@ def apply_baseline(db,path,namespace,output):
         if not eid:totals['archived_no_route']+=1;continue
         employer=employers[eid]
         if employer.is_demo:raise ValueError('Cannot activate demo employers as CSV data')
+        preserve_csv_context(db,eid,artifact['id'],record,row)
         if employer.identity_status=='quarantined':totals['quarantined']+=1;continue
         employer.identity_status='accepted';employer.matching_basis='provided_csv'
         at=timestamp(row.get('Observed At'))

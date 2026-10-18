@@ -38,6 +38,7 @@ class Settings:
     session_days: int = 30
     max_attempts: int = 3
     manual_catalogue_updates: bool = False
+    role_graph_enabled: bool = False
 
     @classmethod
     def from_env(cls):
@@ -61,6 +62,7 @@ class Settings:
             environment=os.getenv("SPONSORMATCH_ENV", "development"),
             demo_price_gbp=int(os.getenv("DEMO_ACCESS_PRICE_GBP", "19")),
             manual_catalogue_updates=os.getenv('SPONSORREACH_MANUAL_UPDATES','false').lower()=='true',
+            role_graph_enabled=os.getenv('SPONSORREACH_ROLE_GRAPH_ENABLED','false').lower()=='true',
         )
         if value.environment == "production" and len(value.api_secret) < 32:
             raise ValueError("Production requires a private SPONSORMATCH_API_SECRET of at least 32 characters")

@@ -69,7 +69,8 @@ def test_authorized_csv_policy_persists_for_later_manual_imports(integration,tmp
     from sponsor_match.csv_baseline import apply_baseline
     db,_,_=integration
     namespace='test:csv-baseline:'+uuid4().hex
-    row={'Company Name':'Acme Baseline Services','Company UUID':uuid4().hex,'Source Record ID':'1','Indicative Tags':'cybersecurity','Field States':'{}','Email':'hello@acme.example','Address':'10 Example Street, York'}
+    rationale='Accepted the York website. Rejected a same-name restaurant in Leeds; its burger menu belongs to a different company.'
+    row={'Company Name':'Acme Baseline Services','Company UUID':uuid4().hex,'Source Record ID':'1','Indicative Tags':'cybersecurity','Field States':'{}','Email':'hello@acme.example','Address':'10 Example Street, York','Reasoning':rationale}
     path=tmp_path/'companies.csv'
     with path.open('w',newline='') as f:
         writer=csv.DictWriter(f,fieldnames=list(row));writer.writeheader();writer.writerow(row)
@@ -82,3 +83,11 @@ def test_authorized_csv_policy_persists_for_later_manual_imports(integration,tmp
     assert db.one('select count(*) n from sm.accepted_claims where employer_id=%s',(eid,))['n']==1
     assert db.one('select count(*) n from sm.search_documents where employer_id=%s',(eid,))['n']==1
     assert db.employer(eid).matching_basis=='provided_csv'
+    contexts=db.rows("select payload from sm.observations where employer_id=%s and kind='csv_context:Reasoning'",(eid,))
+    assert len(contexts)==1  # Import, activation and replay retain one immutable observation.
+    assert contexts[0]['payload']['raw_value']==rationale
+    assert contexts[0]['payload']['professional_claim'] is False
+    raw=db.one('select payload from sm.source_records where artifact_id=%s and record_key=%s',(result['artifact_id'],'1'))
+    assert raw['payload']['Reasoning']==rationale
+    assert all('burger' not in c.text for c in db.employer(eid).claims)
+    assert all('restaurant' not in r['content'] for r in db.rows('select content from sm.search_documents where employer_id=%s',(eid,)))

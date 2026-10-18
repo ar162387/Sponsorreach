@@ -125,6 +125,8 @@ def test_equivalent_roles_and_ambiguity(profile):
     taxonomy=Taxonomy()
     assert taxonomy.resolve("mechanical designer").id==taxonomy.resolve("Mechanical engineer").id
     profile.role_intents[0].raw_label="analyst"
+    assert not taxonomy.normalize(profile)["clarification"]  # Explicit tasks can disambiguate a broad title.
+    profile.skills=[]
     assert taxonomy.normalize(profile)["clarification"]
     profile.role_intents[0].raw_label="Quantum materials investigator"
     result=taxonomy.normalize(profile)
