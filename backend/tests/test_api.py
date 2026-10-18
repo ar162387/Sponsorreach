@@ -253,10 +253,21 @@ def test_refinement_reuses_verified_account_identity(integration,monkeypatch):
         headers={"X-Session-Token":uuid4().hex*2}
         assert client.get("/api/account/identity",headers=headers).json()=={"signed_in":False}
         assert client.get('/api/account/profile',headers=headers).status_code==401
+        assert client.get('/api/account/overview',headers=headers).status_code==401
         original=request();original["identity"]={"name":"Returning Candidate","email":account["email"]}
         id=client.post("/api/matches",headers=headers,json=original).json()["session_id"]
+        assert 'loading_context' not in client.get('/api/matches/'+id,headers=headers).json()
         headers["Authorization"]="Bearer test-token"
         client.post("/api/account/associate",headers=headers)
+        overview=client.get('/api/account/overview',headers=headers).json()
+        assert overview['first_name']=='Returning' and overview['sessions'][0]['id']==id
+        assert overview['sessions'][0]['roles']==['Mechanical engineer']
+        assert set(overview)=={'first_name','profile','sessions'}
+        assert 'refine@example.com' not in str(overview) and 'visa_context' not in str(overview)
+        context=client.get('/api/matches/'+id,headers=headers).json()['loading_context']
+        assert context['roles']==['Mechanical engineer'] and context['skills']==['CAD']
+        assert set(context)=={'roles','background','specialization','skills','locations','related_roles_enabled'}
+        assert client.get('/api/matches/'+id,headers={'X-Session-Token':uuid4().hex*2}).status_code==404
         assert client.get("/api/account/identity",headers=headers).json()=={"signed_in":True}
         restored=client.get('/api/account/profile',headers=headers).json()
         assert restored['profile']['background']=={'subject':'Mechanical Engineering','specialization':''}
@@ -269,6 +280,8 @@ def test_refinement_reuses_verified_account_identity(integration,monkeypatch):
         assert saved["identity"]==original["identity"]
         # A different signed-in account never inherits a previous user's name.
         account.update(id=str(uuid4()),email="another@example.com")
+        other_overview=client.get('/api/account/overview',headers=headers).json()
+        assert other_overview=={'first_name':None,'profile':None,'sessions':[]}
         other_profile=client.get('/api/account/profile',headers=headers).json()
         assert other_profile['profile'] is None and other_profile['account_key']!=restored['account_key']
         refined["idempotency_key"]=str(uuid4())
@@ -367,3 +380,27 @@ def test_visible_card_includes_imported_contact_routes(integration):
     assert any(c['value']=='recorded@employer.example' and c['note']=='Imported · not rechecked' for c in card['channels'])
     assert any(c['kind']=='linkedin_company' and 'Imported' in c['note'] for c in card['channels'])
     assert any(c['label']=='Totaljobs · search results' for c in card['channels'])
+
+
+def test_personal_overview_excludes_expired_searches(integration,monkeypatch):
+    from dataclasses import replace
+    from unittest.mock import Mock
+    db,settings,_=integration
+    account={'id':str(uuid4()),'email':'expiry-check@example.invalid','email_confirmed_at':'2026-10-18T00:00:00Z'}
+    response=Mock();response.json.return_value=account;response.raise_for_status.return_value=None
+    monkeypatch.setattr('sponsor_match.api.httpx.get',lambda *a,**k:response)
+    auth_settings=replace(settings,require_verified_email=True,supabase_url='https://auth.example',supabase_publishable_key='test')
+    auth_db=Database(settings.database_url)
+    with TestClient(create_app(auth_settings,auth_db)) as client:
+        headers={'X-Session-Token':uuid4().hex*2,'Authorization':'Bearer test'}
+        body=request();body['visa_context']={'route':'Private test context'}
+        session=client.post('/api/matches',headers=headers,json=body).json()['session_id']
+        result=client.get('/api/account/overview',headers=headers).json()
+        assert len(result['sessions'])==1 and 'Private test context' not in str(result)
+        row=auth_db.one('select profile_id from sm_private.match_sessions where id=%s',(session,))
+        auth_db.execute("update sm_private.candidate_profiles set expires_at=now()-interval '1 second' where id=%s",(row['profile_id'],))
+        assert client.get('/api/account/overview',headers=headers).json()=={'first_name':None,'profile':None,'sessions':[]}
+        # Isolate this expired synthetic profile from subsequent worker/retention checks.
+        auth_db.execute('delete from sm.work_items where dedupe_key=%s',('match:'+session,))
+        auth_db.execute('delete from sm_private.match_sessions where id=%s',(session,))
+        auth_db.execute('delete from sm_private.candidate_profiles where id=%s',(row['profile_id'],))

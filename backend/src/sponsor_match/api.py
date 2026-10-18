@@ -163,6 +163,11 @@ def create_app(settings=None,db=None):
         data={"session_id":str(id),"status":s["status"],"stage":s["stage"],"access":s["access"],"error_code":s["error_code"],"demo_price_gbp":settings.demo_price_gbp}
         data['verification_required']=not verified_access(s,request)
         if data['verification_required']:return data
+        profile=Profile.model_validate(s['profile'])
+        data['loading_context']={'roles':[r.raw_label for r in profile.role_intents],
+            'background':profile.background.subject,'specialization':profile.background.specialization,
+            'skills':[skill.label for skill in profile.skills[:5]],
+            'locations':profile.location.preferred_regions,'related_roles_enabled':profile.related_roles_enabled}
         if s["status"]=="ready":
             results=visible_results(s)
             preview=results if s["access"]!="preview" else results[:3]
@@ -217,6 +222,23 @@ def create_app(settings=None,db=None):
         saved=db.one("select profile from sm_private.candidate_profiles where user_id=%s and expires_at>now() order by created_at desc limit 1",(account['id'],))
         return {'profile':Profile.model_validate(saved['profile']).model_dump(mode='json') if saved else None,
                 'account_key':owner_hash('onboarding:'+str(account['id']))}
+
+    @app.get('/api/account/overview')
+    def account_overview(request:Request):
+        account=user(request,True)
+        saved=db.one("select identity,profile from sm_private.candidate_profiles where user_id=%s and expires_at>now() order by created_at desc limit 1",(account['id'],))
+        rows=db.rows("""select s.id,s.status,s.created_at,s.access,p.profile
+            from sm_private.match_sessions s join sm_private.candidate_profiles p on p.id=s.profile_id
+            where s.user_id=%s and p.user_id=%s and s.expires_at>now() and p.expires_at>now()
+            order by s.created_at desc limit 30""",(account['id'],account['id']))
+        sessions=[]
+        for row in rows:
+            profile=Profile.model_validate(row.pop('profile'))
+            sessions.append({**row,'roles':[r.raw_label for r in profile.role_intents]})
+        name=(saved or {}).get('identity',{}).get('name','').strip()
+        return {'first_name':name.split()[0][:60] if name and '@' not in name else None,
+                'profile':Profile.model_validate(saved['profile']).model_dump(mode='json') if saved else None,
+                'sessions':sessions}
 
     @app.get("/api/account/matches")
     def account_matches(request:Request):

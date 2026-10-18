@@ -1,14 +1,27 @@
 import { cookies } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
 import { randomBytes } from 'node:crypto';
+import { cache } from 'react';
 
 export async function supabase() {
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_PUBLISHABLE_KEY) return null;
   const jar = await cookies();
   return createServerClient(process.env.SUPABASE_URL, process.env.SUPABASE_PUBLISHABLE_KEY, {
-    cookies: { getAll: () => jar.getAll(), setAll: (values) => values.forEach(({ name, value, options }) => jar.set(name, value, options)) }
+    cookies: { getAll: () => jar.getAll(), setAll: (values) => {
+      // Proxy refreshes page cookies. Route handlers can write them directly.
+      try { values.forEach(({ name, value, options }) => jar.set(name, value, options)); } catch { /* Server Component is read-only. */ }
+    } }
   });
 }
+export const verifiedUser = cache(async () => {
+  const client = await supabase();
+  if (!client) return null;
+  const { data: { user }, error } = await client.auth.getUser();
+  if (error && error.name !== 'AuthSessionMissingError' && ![400, 401, 403].includes(error.status || 0)) {
+    throw new Error('Your sign-in could not be checked. Please try again.');
+  }
+  return !error && user?.email_confirmed_at ? user : null;
+});
 export async function sessionToken() {
   const jar = await cookies();
   let token = jar.get('sm_owner')?.value;

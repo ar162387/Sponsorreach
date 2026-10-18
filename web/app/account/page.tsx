@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
 import Account from '@/components/account';
-export const metadata: Metadata = { title: 'My sponsor shortlists', robots: { index: false, follow: false } };
-export default function AccountPage() { return <Account/>; }
+import { verifiedUser } from '@/lib/server';
+export const metadata = { title: 'My sponsor shortlists' };
+export default async function AccountPage() { return <Account authenticated={!!(await verifiedUser())}/>; }

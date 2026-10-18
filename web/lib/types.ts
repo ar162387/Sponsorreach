@@ -20,7 +20,9 @@ export type EmployerCard = {
   verified_open_vacancies: { title: string; url: string }[];
   is_demo: boolean; workplace_location_known: boolean;
 };
+export type LoadingContext = { roles: string[]; background: string; specialization: string; skills: string[]; locations: string[]; related_roles_enabled: boolean };
 export type MatchSession = {
+  loading_context?: LoadingContext;
   verification_required?: boolean;
   session_id: string; status: string; stage: string; access: string; error_code?: string;
   preview?: EmployerCard[]; total_count?: number; locked_count?: number;

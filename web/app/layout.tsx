@@ -2,7 +2,12 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ArrowUpRight } from 'lucide-react';
 import Brand from '@/components/brand';
+import AccountNav from '@/components/account-nav';
+import { verifiedUser } from '@/lib/server';
 import './globals.css';
+
+// Runtime auth configuration must never freeze a guest header into the build.
+export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.APP_ORIGIN || 'http://127.0.0.1:3000'),
@@ -12,10 +17,11 @@ export const metadata: Metadata = {
   twitter: { card: 'summary_large_image', title: 'SponsorReach UK', description: 'Find relevant UK licensed sponsors and reach out directly.', images: ['/brand/social-share.png'] },
   icons: { icon: [{ url: '/icon.png', sizes: '64x64', type: 'image/png' }], apple: '/apple-icon.png' },
 };
-export default function Layout({ children }: { children: React.ReactNode }) {
+export default async function Layout({ children }: { children: React.ReactNode }) {
+  const user = await verifiedUser();
   return <html lang="en-GB"><body>
     <a className="skip" href="#main">Skip to content</a>
-    <header className="header"><Brand/><nav aria-label="Main navigation"><Link href="/#how-it-works" className="nav-link marketing-nav">How it works</Link><Link href="/#faq" className="nav-link marketing-nav">FAQs</Link><Link href="/account" className="nav-link saved-nav">My sponsor shortlists</Link><Link className="button small" href="/match">Find my sponsors <ArrowUpRight size={16}/></Link></nav></header>
+    <header className="header"><Brand/><AccountNav signedIn={!!user}/></header>
     <main id="main" tabIndex={-1}>{children}</main>
     <footer className="footer"><div className="footer-main"><Brand inverse/><p>Relevant UK sponsors.<br/>A clearer way to reach them.</p></div><div className="footer-links"><Link href="/match">Find my sponsors</Link><Link href="/account">My sponsor shortlists</Link><Link href="/privacy">Privacy</Link><Link href="/terms">Terms</Link></div><p className="footer-note">SponsorReach UK helps you research licensed sponsors and contact relevant companies. Employers decide whether to offer a job and sponsorship.</p></footer>
   </body></html>;
