@@ -23,7 +23,7 @@ cd /opt/sponsorreach/app/backend
 python3 -m venv .venv
 .venv/bin/pip install --disable-pip-version-check --no-cache-dir 'torch==2.14.1' --index-url https://download.pytorch.org/whl/cpu
 .venv/bin/pip install --disable-pip-version-check --no-cache-dir --no-deps -r ../deploy/requirements-cpu.txt
-.venv/bin/pip install --disable-pip-version-check --no-cache-dir --no-deps .
+.venv/bin/pip install --disable-pip-version-check --no-cache-dir --no-deps -e .
 .venv/bin/pip check
 cd /opt/sponsorreach/app/web
 npm ci --no-audit --no-fund
