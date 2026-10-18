@@ -1,0 +1,54 @@
+{
+  "alpha_preserved_for_recoloured_variants": true,
+  "assets": [
+    {
+      "name": "logo-stacked.png",
+      "width": 1648,
+      "height": 764,
+      "transparent_pixels": 850666,
+      "visible_pixels": 408406
+    },
+    {
+      "name": "logo-horizontal.png",
+      "width": 2034,
+      "height": 273,
+      "transparent_pixels": 356708,
+      "visible_pixels": 198574
+    },
+    {
+      "name": "logo-reversed.png",
+      "width": 2034,
+      "height": 273,
+      "transparent_pixels": 356708,
+      "visible_pixels": 198574
+    },
+    {
+      "name": "sr-mark.png",
+      "width": 1101,
+      "height": 641,
+      "transparent_pixels": 328517,
+      "visible_pixels": 377224
+    },
+    {
+      "name": "sr-mark-reversed.png",
+      "width": 1101,
+      "height": 641,
+      "transparent_pixels": 328517,
+      "visible_pixels": 377224
+    },
+    {
+      "name": "sr-mark-navy.png",
+      "width": 1079,
+      "height": 614,
+      "transparent_pixels": 300430,
+      "visible_pixels": 362076
+    },
+    {
+      "name": "sr-mark-white.png",
+      "width": 1101,
+      "height": 641,
+      "transparent_pixels": 328517,
+      "visible_pixels": 377224
+    }
+  ]
+}

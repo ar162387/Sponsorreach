@@ -1,0 +1,28 @@
+services:
+  api:
+    build: { context: ., dockerfile: backend/Dockerfile }
+    env_file: .env
+    environment:
+      SPONSORMATCH_ENV: production
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+  worker:
+    build: { context: ., dockerfile: backend/Dockerfile }
+    command: ["uv", "run", "--no-sync", "sponsormatch", "worker"]
+    env_file: .env
+    environment:
+      SPONSORMATCH_ENV: production
+    restart: unless-stopped
+  web:
+    build: { context: ., dockerfile: web/Dockerfile }
+    env_file: .env
+    environment:
+      SPONSORMATCH_API_URL: http://api:8001
+    ports: ["127.0.0.1:3000:3000"]
+    depends_on:
+      api: { condition: service_healthy }
+    restart: unless-stopped
