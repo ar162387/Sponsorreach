@@ -31,3 +31,7 @@ LinkedIn public post/transcript inspected. Its video reports Unable to play medi
 ## Completed validation
 
 218 backend tests and three personalization unit tests pass; TypeScript and production build pass. A synthetic confirmed account in a local production build exercised the dashboard, role-aware loader, pause/resume and sign-out. HTTP checks confirm account isolation, private caching, cross-origin sign-out rejection and POST-only logout. No real verification email was sent. Live verification follows deployment; matching latency is unchanged.
+
+## London release
+
+Deployed 18 October 2026 to the existing separate London instance. Production build completed; web/API/worker health checks passed. Public HTTPS checks passed for intake, public about page, guest navigation, private caching, anonymous overview rejection and sign-out method/origin protection. Prior web and API copies are retained in `/opt/sponsorreach/personalization-20261018` for rollback. No database migration, model change or processing of scraper data was required. Real-inbox sign-in was not repeated during this release.
