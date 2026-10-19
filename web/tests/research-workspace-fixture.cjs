@@ -9,7 +9,7 @@ const exp=Math.floor(Date.now()/1000)+3600;
 const token=encode({alg:'HS256',typ:'JWT'})+'.'+encode({sub:uid,aud:'authenticated',exp,email:'maya@example.invalid'})+'.fixture-signature';
 const user={id:uid,aud:'authenticated',role:'authenticated',email:'maya@example.invalid',email_confirmed_at:'2026-10-18T00:00:00Z',app_metadata:{provider:'email',providers:['email']},user_metadata:{},created_at:'2026-10-18T00:00:00Z',identities:[]};
 const session={access_token:token,refresh_token:'fixture-refresh',token_type:'bearer',expires_in:3600,expires_at:exp,user};
-const profile={profile_version:1,background:{subject:'Computer science',specialization:'Accessible web applications'},role_intents:[{raw_label:'Software developer',confirmed:true}],career_stage:'graduate',skills:[{label:'Python',source:'user'},{label:'SQL',source:'user'}],experience_summary:'Built a web application.',preferred_industries:[],certifications:[],location:{preferred_regions:['London'],relocate:true,strict:false},related_roles_enabled:false};
+const profile={profile_version:1,explore:false,background:{subject:'Computer science',specialization:'Accessible web applications'},role_intents:[{raw_label:'Software developer',confirmed:true}],career_stage:'graduate',skills:[{label:'Python',source:'user'},{label:'SQL',source:'user'}],experience_summary:'Built a web application.',preferred_industries:[],certifications:[],location:{preferred_regions:['London'],relocate:true,strict:false},related_roles_enabled:false};
 const rows=ids.map((id,index)=>({id,status:'ready',starred:index===0,created_at:'2026-10-18T10:00:00Z',access:index===1?'preview':'demo_unlocked',roles:[['Software engineering & web development','Water treatment & environmental engineering','Human resources'][index]]}));
 const names=[['Workshop Digital','Cobalt Cloud','Northstar Software','Signal Labs'],['River Systems','Estuary Engineering','Waterworks Design'],[]];
 const bookmarks=new Set();let failNext=false,processing=false,mutations=0;
@@ -20,11 +20,13 @@ function company(id,index) {
 http.createServer(async(req,res)=>{
  const url=new URL(req.url,host);let raw='';for await(const chunk of req)raw+=chunk;const body=raw?JSON.parse(raw):{};
  const send=(code,value,delay=0)=>setTimeout(()=>{res.writeHead(code,{'Content-Type':'application/json','Cache-Control':'private, no-store'});res.end(JSON.stringify(value));},delay);
+ if(url.pathname==='/fixture/mobile-app'||url.pathname.startsWith('/_next/')||url.pathname.startsWith('/brand/')){const upstream=await fetch(app+(url.pathname==='/fixture/mobile-app'?'/account':url.pathname+url.search),{headers:{cookie:req.headers.cookie||''}});res.writeHead(upstream.status,{'Content-Type':upstream.headers.get('Content-Type')||'text/html'});return res.end(Buffer.from(await upstream.arrayBuffer()));}
+ if(url.pathname==='/fixture/mobile'){res.writeHead(200,{'Content-Type':'text/html'});return res.end('<!doctype html><html><body style="margin:0;background:#e6ecee;display:flex;justify-content:center"><iframe title="Mobile workspace preview" src="/fixture/mobile-app" style="width:390px;height:680px;border:0"></iframe></body></html>');}
  if(url.pathname==='/fixture/login'){res.writeHead(302,{'Set-Cookie':'sb-127-auth-token=base64-'+encode(session)+'; Path=/; HttpOnly; SameSite=Lax',Location:app+'/account'});return res.end();}
  if(url.pathname==='/fixture/fail-bookmark'){failNext=true;return send(200,{ok:true});}
  if(url.pathname==='/fixture/processing'){processing=!!body.active;return send(200,{ok:true});}
  if(url.pathname==='/fixture/metrics')return send(200,{mutations});
- const authenticated=req.headers.authorization==='Bearer '+token;
+ const authenticated=req.headers.authorization==='Bearer '+token || (req.headers.cookie||'').includes('sb-127-auth-token=');
  if(url.pathname==='/auth/v1/user')return send(authenticated?200:401,authenticated?user:{message:'Invalid token'});
  if(url.pathname==='/api/account/identity')return send(200,{signed_in:authenticated});
  if(url.pathname==='/api/account/overview')return send(authenticated?200:401,{first_name:'Maya',profile,sessions:rows,bookmarks:ids.flatMap(id=>names[ids.indexOf(id)].map((_,index)=>company(id,index))).filter(c=>c.bookmarked)},250);
@@ -38,6 +40,6 @@ http.createServer(async(req,res)=>{
  if(url.pathname.endsWith('/demo-unlock')){mutations++;rows.find(r=>url.pathname.includes(r.id)).access='demo_unlocked';return send(200,{access:'demo_unlocked',charged:false},800);}
  if(url.pathname==='/api/feedback')return send(201,{saved:true});
  const id=ids.find(id=>url.pathname==='/api/matches/'+id);
- if(id){const row=rows.find(r=>r.id===id),all=names[ids.indexOf(id)].map((_,i)=>company(id,i));return send(200,{session_id:id,status:processing?'processing':'ready',stage:'Checking professional relevance',starred:row.starred,total_count:all.length,direct_count:all.length,locked_count:0,access:row.access,demo_price_gbp:19,preview:all,next_cursor:null,loading_context:{roles:row.roles,background:profile.background.subject,specialization:profile.background.specialization,skills:['Python','SQL'],locations:['London'],related_roles_enabled:false}},id===ids[0]?850:300);}
+ if(id){const row=rows.find(r=>r.id===id),all=names[ids.indexOf(id)].map((_,i)=>company(id,i));return send(200,{session_id:id,status:processing?'processing':'ready',stage:'Checking professional relevance',starred:row.starred,total_count:all.length,direct_count:all.length,locked_count:0,access:row.access,demo_price_gbp:19,preview:all,next_cursor:null,profile:{...profile,background:{subject:ids.indexOf(id)===1?'Environmental engineering':profile.background.subject,specialization:ids.indexOf(id)===1?'Water treatment':profile.background.specialization},role_intents:row.roles.map(raw_label=>({raw_label,confirmed:true}))},visa_context:{route:'Graduate',expiry:'2027-05-01'},loading_context:{roles:row.roles,background:profile.background.subject,specialization:profile.background.specialization,skills:['Python','SQL'],locations:['London'],related_roles_enabled:false}},id===ids[0]?850:300);}
  return send(404,{detail:'Missing fixture endpoint'});
 }).listen(9030,'127.0.0.1',()=>console.log('Synthetic UI fixture: '+host+'/fixture/login'));

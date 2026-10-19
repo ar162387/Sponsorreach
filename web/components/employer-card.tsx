@@ -24,7 +24,7 @@ function BoardIcon({ name }: { name: string }) {
   if (src && !failed) return <Image src={src} width={16} height={16} alt="" unoptimized onError={() => setFailed(true)}/>;
   return name === 'Website' ? <Globe size={15}/> : name === 'LinkedIn' ? <Link2 size={15}/> : <BriefcaseBusiness size={15}/>;
 }
-export function Card({ employer, id, position, dashboard = false, compact = false, onBookmarkChange }: { employer: EmployerCard; id: string; position: number; dashboard?: boolean; compact?: boolean; onBookmarkChange?: (saved: boolean) => void }) {
+export function Card({ employer, id, position, dashboard = false, compact = false, onBookmarkChange, onOpenShortlist }: { employer: EmployerCard; id: string; position: number; dashboard?: boolean; compact?: boolean; onOpenShortlist?: (id: string) => void; onBookmarkChange?: (saved: boolean) => void }) {
   const [saved, setSaved] = useState(!!employer.bookmarked), [helpful, setHelpful] = useState(false), [error, setError] = useState('');
   useEffect(() => { if (dashboard) return; api('feedback', { method: 'POST', body: JSON.stringify({ session_id: id, employer_id: employer.employer_id, event: 'impression', position }) }).catch(() => {}); }, [id, employer.employer_id, position, dashboard]);
   async function feedback(event: string) {
@@ -73,7 +73,7 @@ export function Card({ employer, id, position, dashboard = false, compact = fals
     {(!compact || expanded) && !!boardGroups.length && <div className="reach-job-boards"><span className="reach-section-label">EXPLORE JOB BOARDS</span><div className="reach-route-row">{boardGroups.map(renderGroup)}</div></div>}
     {(!compact || expanded) && !!employer.verified_open_vacancies.length && <div className="reach-openings">{employer.verified_open_vacancies.filter(v => !employer.channels.some(c => routeKey(c.value) === routeKey(v.url))).map(v => <a href={v.url} key={v.url} target="_blank" rel="noreferrer"><BriefcaseBusiness size={14}/>{v.title}<ArrowUpRight size={13}/></a>)}</div>}
     {compact && <button type="button" className="company-reveal" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{expanded ? 'Show less' : 'Reveal further details'}<ChevronDown size={14}/></button>}
-    {!dashboard && <div className="reach-feedback"><button className={helpful ? 'selected' : ''} onClick={() => feedback('helpful')}><ThumbsUp size={14}/>{helpful ? 'Thanks!' : 'Relevant to me'}</button><button onClick={() => feedback('not_relevant')}>Not relevant</button></div>}{dashboard && employer.session_id && <Link className="text-link bookmark-source" href={"/results/" + employer.session_id}>Open shortlist<ArrowUpRight size={14}/></Link>}{error && <p className="error" role="alert">{error}</p>}
+    {!dashboard && <div className="reach-feedback"><button className={helpful ? 'selected' : ''} onClick={() => feedback('helpful')}><ThumbsUp size={14}/>{helpful ? 'Thanks!' : 'Relevant to me'}</button><button onClick={() => feedback('not_relevant')}>Not relevant</button></div>}{dashboard && employer.session_id && <button className="text-button bookmark-source" onClick={() => onOpenShortlist?.(employer.session_id!)}>Open shortlist<ArrowUpRight size={14}/></button>}{error && <p className="error" role="alert">{error}</p>}
   </article>;
 }
 

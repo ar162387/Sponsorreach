@@ -30,3 +30,13 @@ The web build is staged on the existing ARM host under `/opt/sponsorreach/resear
 ### Publication verified
 
 Published on 18 October 2026 UTC (19 October locally). Web/API/worker/Caddy are active. Public account and form routes return 200 with verified TLS, the private account API rejects guests with 401, and the new workspace CSS and company-card JavaScript assets return 200. The existing worker was left running during the web/API switch. No schema, runtime origin, Caddy configuration, catalogue publication or model flag changed.
+
+## In-workspace refinement — 19 October 2026
+
+Signed-in users now create and refine searches within the workspace detail pane. The same three-step Intake component remains the standalone first-time onboarding form; embedded mode omits its marketing aside and accepts an authorized profile snapshot synchronously. It does not perform a second identity/profile lookup or briefly display a blank refinement form. Optional professional fields and separately stored visa timing are restored, and submitting refinement queues a new revision on the same shortlist. Cancel returns to cached companies without changing the saved profile.
+
+The verified, ownership-checked session response includes its complete professional profile and optional visa context. Neither is returned before the verification gate; identity is not included. The overview continues to exclude visa context. These details remain in component memory rather than a persistent employer/profile browser cache.
+
+The authenticated header contains My account with Sign out only. New search is highlighted inside the workspace. Full-page shortlist controls are removed; authenticated legacy results and onboarding URLs redirect into the workspace. Mobile uses distinct list/detail views, a back control, independently scrolling content and a sticky form action row rather than stacking two cramped panes.
+
+Validation: 242 backend tests; 17 frontend tests including synchronous prefill, exact selected profile, optional context preservation, cancellation, in-place submission, new-search isolation and minimal account navigation. Production builds pass. Browser checks used fictional local fixture data on desktop and a 390px-wide iframe test harness for mobile layout, selection, refinement and scroll reachability. No production user searches, emails or account records were created during testing.

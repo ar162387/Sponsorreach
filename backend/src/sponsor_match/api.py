@@ -182,6 +182,8 @@ def create_app(settings=None,db=None):
         data['verification_required']=not verified_access(s,request)
         if data['verification_required']:return data
         profile=Profile.model_validate(s['profile'])
+        data['profile']=profile.model_dump()
+        data['visa_context']=s.get('visa_context')
         data['loading_context']={'roles':[r.raw_label for r in profile.role_intents],
             'background':profile.background.subject,'specialization':profile.background.specialization,
             'skills':[skill.label for skill in profile.skills[:5]],

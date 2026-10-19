@@ -44,9 +44,8 @@ export default function AccountNav({ signedIn }: { signedIn: boolean }) {
   return <nav aria-label="Main navigation" className="personal-nav">
     {!signedIn && <Link href="/about#how-it-works" className="nav-link marketing-nav">How it works</Link>}
     {signedIn ? <>
-      <Link href="/account" className="nav-link">My dashboard</Link>
-      <div ref={menu} className="account-menu" onMouseEnter={() => setMenuOpen(true)} onMouseLeave={() => setMenuOpen(false)} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setMenuOpen(false); }}><button type="button" className="account-menu-trigger" aria-expanded={menuOpen} aria-controls="account-menu-panel" onClick={() => setMenuOpen(true)}><span className="status-dot"/>My account<ChevronDown size={14}/></button>{menuOpen && <div id="account-menu-panel" className="account-menu-panel" onClick={() => setMenuOpen(false)}><span className="account-state">Signed in</span><Link href="/account">My sponsor shortlists</Link><Link href="/match?new=1">Search another profile</Link><Link href="/about">About SponsorReach</Link><button disabled={busy} onClick={signOut}><LogOut size={15}/>{busy ? 'Signing out…' : 'Sign out'}</button>{error && <p role="alert" className="error">{error}</p>}</div>}</div>
+      <div ref={menu} className="account-menu" onMouseEnter={() => setMenuOpen(true)} onMouseLeave={() => setMenuOpen(false)} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setMenuOpen(false); }}><button type="button" className="account-menu-trigger" aria-expanded={menuOpen} aria-controls="account-menu-panel" onClick={() => setMenuOpen(true)}><span className="status-dot"/>My account<ChevronDown size={14}/></button>{menuOpen && <div id="account-menu-panel" className="account-menu-panel" onClick={() => setMenuOpen(false)}><button disabled={busy} onClick={signOut}><LogOut size={15}/>{busy ? 'Signing out…' : 'Sign out'}</button>{error && <p role="alert" className="error">{error}</p>}</div>}</div>
     </> : <Link href="/account" className="nav-signin">Sign in</Link>}
-    <Link className="button small" href={signedIn ? "/match?new=1" : "/match"}>{signedIn ? 'New search' : 'Find my sponsors'}<ArrowUpRight size={16}/></Link>
+    <>{!signedIn && <Link className="button small" href="/match">Find my sponsors<ArrowUpRight size={16}/></Link>}</>
   </nav>;
 }

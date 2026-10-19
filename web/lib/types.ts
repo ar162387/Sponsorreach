@@ -22,7 +22,9 @@ export type EmployerCard = {
   is_demo: boolean; workplace_location_known: boolean;
 };
 export type LoadingContext = { roles: string[]; background: string; specialization: string; skills: string[]; locations: string[]; related_roles_enabled: boolean };
+export type VisaContext = { route: string; expiry: string | null };
 export type MatchSession = {
+  profile?: Profile; visa_context?: VisaContext | null;
   starred?: boolean; revision?: number; next_cursor?: number | null;
   loading_context?: LoadingContext;
   verification_required?: boolean;

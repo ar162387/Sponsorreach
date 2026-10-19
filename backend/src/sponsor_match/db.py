@@ -193,7 +193,7 @@ class Database:
             return id
 
     def owned_session(self, id, token, user_id=None):
-        return self.one("select s.*,p.profile,p.identity from sm_private.match_sessions s join sm_private.candidate_profiles p on p.id=s.profile_id where s.id=%s and s.expires_at>now() and (s.owner_hash=%s or (%s::uuid is not null and s.user_id=%s::uuid))",(id,owner_hash(token),user_id,user_id))
+        return self.one("select s.*,p.profile,p.identity,p.visa_context from sm_private.match_sessions s join sm_private.candidate_profiles p on p.id=s.profile_id where s.id=%s and s.expires_at>now() and (s.owner_hash=%s or (%s::uuid is not null and s.user_id=%s::uuid))",(id,owner_hash(token),user_id,user_id))
 
     def claim_work(self,kinds=None):
         return self.one("""with item as (select id from sm.work_items where available_at<=now() and (%s::text[] is null or kind=any(%s::text[])) and (state='pending' or (state='running' and leased_until<now())) order by available_at,created_at for update skip locked limit 1)

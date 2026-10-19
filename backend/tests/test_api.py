@@ -352,6 +352,7 @@ def test_verification_gate_withholds_all_results_until_owner_association(integra
         worker(db,settings,once=True)
         data=client.get('/api/matches/'+id,headers=headers).json()
         assert data['verification_required'] and 'preview' not in data and 'total_count' not in data
+        assert 'profile' not in data and 'visa_context' not in data
         assert client.get(f'/api/matches/{id}/results',headers=headers).status_code==403
         assert client.post(f'/api/matches/{id}/demo-unlock',headers=headers).status_code==403
         headers['Authorization']='Bearer test-token'
@@ -489,3 +490,18 @@ def test_saved_shortlist_get_is_read_only_and_verifies_auth_once(integration,mon
         # No names or contacts after the authorized preview are returned.
         locked=db.rows('select employer_id from sm_private.match_results where session_id=%s and rank>=3',(id,))
         assert all(str(row['employer_id']) not in str(data) for row in locked)
+
+
+def test_selected_shortlist_returns_exact_owned_profile_and_optional_context(integration):
+    db,settings,client=integration
+    headers={'X-Session-Token':uuid4().hex*2}
+    body=request();body['profile']['background']['subject']='Environmental engineering'
+    body['profile']['certifications']=['IEMA']
+    body['visa_context']={'route':'Graduate','expiry':'2027-05-01'}
+    id=client.post('/api/matches',headers=headers,json=body).json()['session_id']
+    data=client.get('/api/matches/'+id,headers=headers).json()
+    assert data['profile']['background']['subject']=='Environmental engineering'
+    assert data['profile']['certifications']==['IEMA']
+    assert data['visa_context']==body['visa_context']
+    assert 'identity' not in data
+    assert client.get('/api/matches/'+id,headers={'X-Session-Token':uuid4().hex*2}).status_code==404

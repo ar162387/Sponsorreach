@@ -11,6 +11,7 @@ function load(file){
  const module={exports:{}};compiled.set(file,module);
  const code=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText;
  function localRequire(spec){
+  if(spec==='next/navigation')return {useRouter:()=>({push:()=>{throw new Error('Workspace must not navigate away');}})};
   if(spec==='next/link')return {__esModule:true,default:({children,href,...props})=>React.createElement('a',{...props,href},children),useLinkStatus:()=>({pending:false})};
   if(spec==='next/image')return {__esModule:true,default:({unoptimized,...props})=>React.createElement('img',props)};
   if(spec.startsWith('@/')||spec.startsWith('.')){
@@ -23,12 +24,13 @@ function load(file){
  new Function('require','module','exports',code)(localRequire,module,module.exports);return module.exports;
 }
 const Results=load(path.join(base,'components/results.tsx')).default;
+const AccountNav=load(path.join(base,'components/account-nav.tsx')).default;
 const Account=load(path.join(base,'components/account.tsx')).default;
 const {Card}=load(path.join(base,'components/employer-card.tsx'));
 const idA='22222222-2222-4222-8222-222222222222',idB='22222222-2222-4222-8222-222222222223';
-const profile={background:{subject:'Computing',specialization:''},role_intents:[{raw_label:'Developer'}],skills:[],location:{preferred_regions:[],relocate:false}};
+const profile={profile_version:1,explore:false,career_stage:'graduate',experience_summary:'Water projects',preferred_industries:['Engineering'],certifications:['IEMA'],related_roles_enabled:false,background:{subject:'Computing',specialization:'Wastewater'},role_intents:[{raw_label:'Developer',confirmed:true}],skills:[],location:{preferred_regions:[],relocate:false,strict:false}};
 const company=name=>({employer_id:name,session_id:idA,name,town:'London',bookmarked:false,group:'direct',explanation:{text:'Software services',summary:'Software services',sources:[],skill_hits:[]},tags:[],channels:[{kind:'email',value:'careers@example.invalid'},{kind:'phone',value:'+44 20 0000 0000'},{kind:'website',value:'https://example.invalid'},{kind:'address',value:'10 Example Road'},{kind:'job_board',label:'Indeed · job board',value:'https://example.invalid/jobs'}],sponsor:{status:'register_authorized'},verified_open_vacancies:[],is_demo:false});
-const saved=(id,name)=>({session_id:id,status:'ready',stage:'Your shortlist is ready',access:'preview',demo_price_gbp:19,total_count:1,direct_count:1,next_cursor:null,preview:[company(name)]});
+const saved=(id,name)=>({session_id:id,status:'ready',stage:'Your shortlist is ready',access:'preview',demo_price_gbp:19,profile,visa_context:{route:'Graduate',expiry:'2027-05-01'},total_count:1,direct_count:1,next_cursor:null,preview:[company(name)]});
 const json=(body,status=200)=>new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json'}});
 function deferred(){let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};}
 let root,container,dom,calls,handler;
@@ -101,7 +103,7 @@ test('selecting a shortlist updates its highlight immediately and a late respons
  await finish(b,json(saved(idB,'Water company')));await finish(a,json(saved(idA,'Late software company')));
  assert(container.textContent.includes('Water company'));assert(!container.textContent.includes('Late software company'));
  assert(window.location.search.includes(idB));
- assert.equal(container.querySelectorAll('.shortlist-open')[1].getAttribute('href'),'/results/'+idB);
+ assert.equal(container.querySelectorAll('.shortlist-open').length,0);
  const aborted=calls.find(c=>c.url===`/api/matches/${idA}`);assert(aborted.options.signal.aborted);
 });
 
@@ -137,4 +139,60 @@ test('the previous shortlist selection is addressable and restored by browser hi
  assert(window.location.search.includes(idB));
  await act(async()=>{window.history.replaceState(null,'','/account?shortlist='+idA);window.dispatchEvent(new window.PopStateEvent('popstate'));});
  assert.equal(container.querySelectorAll('.shortlist-select')[0].getAttribute('aria-pressed'),'true');assert(container.textContent.includes('Software company'));
+});
+
+
+test('refinement opens the exact saved profile synchronously inside the workspace without another profile request',async()=>{
+ const {a}=setupAccount();await render(React.createElement(Account,{authenticated:true}));await finish(a,json(saved(idA,'Software company')));
+ const shell=container.querySelector('.workspace-columns');
+ await click([...container.querySelectorAll('button')].find(b=>b.textContent==='Refine profile'));
+ assert.equal(container.querySelector('.workspace-columns'),shell);
+ assert.equal(container.querySelector('input[placeholder^="e.g. Mechanical Engineering"]').value,'Computing');
+ assert.equal(container.querySelector('input[placeholder="e.g. Design and manufacturing"]').value,'Wastewater');
+ assert.equal(container.querySelector('input[aria-label="Desired role 1"]').value,'Developer');
+ assert(!calls.some(c=>c.url.includes('account/profile')||c.url.includes('account/identity')));
+ await click([...container.querySelectorAll('button')].find(b=>b.textContent==='Close'));
+ assert(container.textContent.includes('Software company'));
+});
+
+test('new search is blank deliberately and cancellation returns to the same shortlist',async()=>{
+ const {a}=setupAccount();await render(React.createElement(Account,{authenticated:true}));await finish(a,json(saved(idA,'Software company')));
+ await click(container.querySelector('.workspace-new-search'));
+ assert.equal(container.querySelector('input[aria-label="Desired role 1"]').value,'');
+ assert.equal(container.querySelector('input[placeholder^="e.g. Mechanical Engineering"]').value,'');
+ await click([...container.querySelectorAll('button')].find(b=>b.textContent==='Close'));
+ assert(container.textContent.includes('Software company'));
+ assert(container.querySelector('.show-mobile-detail'));
+ await click(container.querySelector('.mobile-workspace-back'));
+ assert(container.querySelector('.show-mobile-list'));
+});
+
+test('refining keeps optional profile fields and visa details, then updates the same shortlist without routing',async()=>{
+ const {a}=setupAccount();await render(React.createElement(Account,{authenticated:true}));await finish(a,json(saved(idA,'Software company')));
+ const prior=handler;handler=(url,options)=>{
+  if(url==='/api/profiles/normalize')return Promise.resolve(json({role_intents:profile.role_intents,clarification:null}));
+  if(url.endsWith('/refresh'))return Promise.resolve(json({session_id:idA,verification_required:false}));
+  return prior(url,options);
+ };
+ await click([...container.querySelectorAll('button')].find(b=>b.textContent==='Refine profile'));
+ const submit=()=>act(async()=>container.querySelector('form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));
+ await submit();
+ assert.equal(container.querySelector('textarea').value,'Water projects');
+ assert.equal(container.querySelector('input[placeholder^="Only qualifications"]').value,'IEMA');
+ await submit();assert.equal(container.querySelector('input[type="date"]').value,'2027-05-01');
+ await submit();
+ const request=calls.find(c=>c.url.endsWith('/refresh'));assert(request);
+ const body=JSON.parse(request.options.body);assert.equal(body.profile.certifications[0],'IEMA');assert.equal(body.visa_context.route,'Graduate');
+ assert(!container.querySelector('.embedded-intake'));assert(window.location.search.includes(idA));
+});
+
+
+test('signed-in top navigation exposes only the account menu and sign out',async()=>{
+ handler=async()=>json({signed_in:true});await render(React.createElement(AccountNav,{signedIn:true}));
+ assert(!container.textContent.includes('My dashboard'));assert(!container.textContent.includes('New search'));
+ await click(container.querySelector('.account-menu-trigger'));
+ assert.equal(container.querySelectorAll('.account-menu-panel a').length,0);
+ assert.equal(container.querySelector('.account-menu-panel button').textContent,'Sign out');
+ await act(async()=>document.body.dispatchEvent(new window.Event('pointerdown',{bubbles:true})));
+ assert(!container.querySelector('.account-menu-panel'));
 });
