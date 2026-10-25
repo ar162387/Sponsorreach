@@ -34,3 +34,9 @@ Do not run scraper, CSV import, employer embeddings, taxonomy downloads or model
 The advertised t4g.small trial covers up to 750 aggregate compute hours/month through 31 December 2026. Verify the actual bill; it does not cover storage, IPv4, CPU surplus or every other service. Normal compute pricing resumes in January unless AWS changes the offer. The extra $40 credit is pending until the operator completes the activities and AWS awards it. The plan still requires reducing the existing account's spending. Budget notifications are not spending caps.
 
 Never upgrade the account plan, resize the existing server, migrate its databases or create paid extras as part of a routine SponsorReach release.
+
+## Applications paused — 25 October 2026
+
+New applications are closed. The website displays “We are not currently taking applications.” and replaces guest onboarding with that notice. Guest match submissions return 403 before a profile is forwarded or saved. Email sign-in explicitly sets `shouldCreateUser: false`; existing members retain access. Local Supabase configuration also disables signups.
+
+Deploy the updated web build to activate the website changes. In the production Supabase project's Auth settings, disable new user signups as well; committing `supabase/config.toml` alone does not update hosted Auth settings. Verify the closure notice on `/` and `/match`, a rejected guest `POST /api/matches`, and existing-member sign-in.

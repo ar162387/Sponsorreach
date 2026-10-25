@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabase, sameOrigin, publicOrigin, gatewayHeaders, apiBase } from '@/lib/server';
+import { APPLICATIONS_CLOSED_MESSAGE } from '@/lib/applications';
 export async function POST(request: Request) {
   if (!sameOrigin(request)) return NextResponse.json({ error: 'Invalid origin' }, { status: 403 });
   const client = await supabase();
@@ -17,8 +18,8 @@ export async function POST(request: Request) {
     }
     if (typeof email !== 'string' || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return NextResponse.json({ error: 'Enter a valid email.' }, { status: 422 });
     const origin = publicOrigin(request);
-    const { error } = await client.auth.signInWithOtp({ email, options: { emailRedirectTo: origin + '/auth/callback?next=' + encodeURIComponent(next) } });
-    if (error) return NextResponse.json({ error: 'We couldn’t send the sign-in link. Please try again later.' }, { status: 429 });
+    const { error } = await client.auth.signInWithOtp({ email, options: { shouldCreateUser: false, emailRedirectTo: origin + '/auth/callback?next=' + encodeURIComponent(next) } });
+    if (error) return NextResponse.json({ error: APPLICATIONS_CLOSED_MESSAGE + ' Existing members can try signing in again later.' }, { status: 429 });
     return NextResponse.json({ sent: true }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch { return NextResponse.json({ error: 'Unable to send a sign-in link.' }, { status: 400 }); }
 }

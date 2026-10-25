@@ -867,3 +867,5 @@ button:active:not(:disabled) { transform:translateY(1px); }
  .workspace-tabs { gap:12px; }
  .authenticated-app .header { padding-left:0; padding-right:0; }
 }
+
+.applications-notice { padding: 14px 24px; text-align: center; background: #123e50; color: #fff; font-weight: 600; }

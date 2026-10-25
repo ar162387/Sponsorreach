@@ -4,6 +4,7 @@ import { ArrowUpRight } from 'lucide-react';
 import Brand from '@/components/brand';
 import AccountNav from '@/components/account-nav';
 import { verifiedUser } from '@/lib/server';
+import { APPLICATIONS_CLOSED_MESSAGE } from '@/lib/applications';
 import './globals.css';
 
 // Runtime auth configuration must never freeze a guest header into the build.
@@ -22,6 +23,7 @@ export default async function Layout({ children }: { children: React.ReactNode }
   return <html lang="en-GB"><body className={user ? 'authenticated-app' : undefined}>
     <a className="skip" href="#main">Skip to content</a>
     <header className="header"><Brand/><AccountNav signedIn={!!user}/></header>
+    <aside className="applications-notice" aria-label="Application status">{APPLICATIONS_CLOSED_MESSAGE}</aside>
     <main id="main" tabIndex={-1}>{children}</main>
     <footer className="footer"><div className="footer-main"><Brand inverse/><p>Relevant UK sponsors.<br/>A clearer way to reach them.</p></div><div className="footer-links"><Link href="/match">Find my sponsors</Link><Link href="/account">My sponsor shortlists</Link><Link href="/privacy">Privacy</Link><Link href="/terms">Terms</Link></div><p className="footer-note">SponsorReach UK helps you research licensed sponsors and contact relevant companies. Employers decide whether to offer a job and sponsorship.</p></footer>
   </body></html>;
