@@ -7,11 +7,11 @@ import httpx
 from fastapi import FastAPI,Header,HTTPException,Request
 from psycopg.types.json import Jsonb
 from .config import Settings
-from .db import Database,owner_hash
+from .db import Database,owner_hash,IdempotencyConflict
 from .models import Profile,MatchRequest,Feedback,Identity,ShortlistRefresh,SavedState
 from .ranking import sponsor_valid,usable_channels,open_jobs
 from .presentation import displayed_channels,short_match_reason
-from .billing import Credits,InsufficientCredits,billing_enabled,spending_enabled,cost,credit_environment
+from .billing import Credits,InsufficientCredits,billing_enabled,spending_enabled,cost,credit_environment,batch_value,lock_account
 
 
 def create_app(settings=None,db=None):
@@ -146,8 +146,9 @@ def create_app(settings=None,db=None):
         if not rows:return {'charged':False,'empty':True}
         try:
             with db.transaction() as c:
-                charged=Credits(db).unlock_in(c,account['id'],str(id),batch,True)
+                charged=Credits(db).unlock_in(c,account['id'],str(id),batch,True,employer_ids=[e.id for _,e in rows])
             return {'charged':charged,'balance':Credits(db).summary(account['id'])['available']}
+        except IdempotencyConflict as exc:raise HTTPException(409,str(exc))
         except InsufficientCredits:raise HTTPException(402,'Insufficient credits. Open billing to subscribe.')
 
     @app.get("/health")
@@ -203,6 +204,7 @@ def create_app(settings=None,db=None):
         elif body.identity is None:
             raise HTTPException(422,"Enter your name and email, or sign in before continuing")
         try:id=db.create_session(body,token(request),account["id"] if account else None)
+        except IdempotencyConflict as exc:raise HTTPException(409,str(exc))
         except InsufficientCredits:raise HTTPException(402,'Insufficient credits. Open billing to subscribe.')
         except ValueError as exc:raise HTTPException(503,str(exc))
         return {"session_id":id,"status":"queued","verification_required":settings.require_verified_email and account is None}
@@ -235,7 +237,14 @@ def create_app(settings=None,db=None):
             if billing_enabled():
                 permitted={r['rank'] for r,_ in preview}
                 locked=[r['rank']//20 for r,_ in results if r['rank'] not in permitted]
-                data.update(credit_mode=True,next_locked_batch=min(locked) if locked else None,balance=Credits(db).summary(user(request,True)['id'])['available'])
+                uid=user(request,True)['id']
+                next_batch=min(locked) if locked else None
+                with db.transaction() as c:
+                    lock_account(c,uid)
+                    value=batch_value(c,uid,str(id),next_batch,employer_ids=[e.id for r,e in results if r['rank']//20==next_batch]) if next_batch is not None else None
+                    first_value=batch_value(c,uid,str(id),0) if initial else None
+                    charged=bool(c.execute("select 1 from sm_private.credit_ledger where user_id=%s and session_id=%s and kind='search' and delta<0",(uid,str(id))).fetchone())
+                data.update(credit_mode=True,next_locked_batch=next_batch,next_batch_cost=(1 if value['chargeable'] else 0) if value else None,search_credit_charged=charged,repeat_credit_saved=bool(first_value and first_value['total'] and not first_value['chargeable']) and not charged,balance=Credits(db).summary(uid)['available'])
         return data
 
     @app.get("/api/matches/{id}/results")
@@ -266,6 +275,7 @@ def create_app(settings=None,db=None):
             account=user(request,True)
             revised=MatchRequest(profile=profile or Profile.model_validate(session['profile']),identity=Identity.model_validate(session['identity']),visa_context=body.visa_context,idempotency_key='refresh:'+str(id)+':'+owner_hash(body.idempotency_key)[:32])
             try:new_id=db.create_session(revised,token(request),account['id'])
+            except IdempotencyConflict as exc:raise HTTPException(409,str(exc))
             except InsufficientCredits:raise HTTPException(402,'Insufficient credits. Open billing to subscribe.')
             except ValueError as exc:raise HTTPException(503,str(exc))
             return {'session_id':new_id,'status':'queued'}
@@ -361,7 +371,7 @@ def create_app(settings=None,db=None):
         return Credits(db).summary(user(request,True)['id'])
 
     @app.get('/api/account/usage')
-    def billing_usage(request:Request,period_id:UUID|None=None):
+    def billing_usage(request:Request,period_id:str|None=None):
         from .billing import Credits
         account=user(request,True)
         try:return Credits(db).usage(account['id'],period_id)

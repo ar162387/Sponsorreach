@@ -81,8 +81,8 @@ def test_no_balance_and_other_owner_never_spend(paid):
     c,db,uid,profile,rows=paid
     first=create(c,uid,profile).json()['session_id'];db.save_results(first,rows,'synthetic',{})
     assert Credits(db).summary(uid)['available']==9
-    for _ in range(9):
-        sid=create(c,uid,profile).json()['session_id'];db.save_results(sid,rows,'synthetic',{})
+    from sponsor_match.billing import entry
+    with db.transaction() as tx:entry(tx,uid,None,-9,'spend',str(uuid4()))
     assert create(c,uid,profile).status_code==402
     assert not c.post(f'/api/matches/{first}/batches/0/unlock',headers=headers(uid)).json()['charged']
     assert c.post(f'/api/matches/{first}/batches/1/unlock',headers=headers(uid)).status_code==402
@@ -101,7 +101,7 @@ def test_paid_refresh_preserves_entitlements_and_retries_without_double_charge(p
     assert c.post(url,headers=headers(uid),json=payload).json()['session_id']==second
     assert Credits(db).summary(uid)['reserved']==1
     db.save_results(second,rows,'synthetic',{},revision=0)
-    assert Credits(db).summary(uid)['available']==808
+    assert Credits(db).summary(uid)['available']==809
     assert len(c.get(f'/api/matches/{first}/results',headers=headers(uid)).json()['results'])==20
     assert len(c.get(f'/api/matches/{second}/results',headers=headers(uid)).json()['results'])==20
     assert c.post(f'/api/matches/{first}/bookmarks/{rows[21].employer_id}',headers=headers(uid),json={'saved':True}).status_code==404
