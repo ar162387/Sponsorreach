@@ -23,7 +23,7 @@ class Database:
     def __init__(self, url):
         pool_size=int(os.getenv("SPONSORMATCH_DB_POOL_SIZE","4"))
         if not 1<=pool_size<=16:raise ValueError("Database pool size must be between 1 and 16")
-        self.pool = ConnectionPool(url, min_size=1, max_size=pool_size, timeout=10, kwargs={"row_factory": dict_row,"autocommit":True}, open=False)
+        self.pool = ConnectionPool(url, min_size=1, max_size=pool_size, timeout=10, kwargs={"row_factory": dict_row,"autocommit":True,"prepare_threshold":None if ":6543/" in url else 5}, open=False)
         self.catalogue_cache=CatalogueCache(url)
         self._taxonomy_cache=None
         self._taxonomy_cached_at=0.
@@ -178,22 +178,29 @@ class Database:
 
     def create_session(self, request, token, user_id=None):
         hash = owner_hash(token)
+        from .billing import billing_enabled,spending_enabled,Credits,lock_account,credit_environment
+        paid=billing_enabled()
+        if paid and (not user_id or not spending_enabled()):raise ValueError("Sign in; paid searches are currently unavailable" if not user_id else "New paid work is temporarily paused")
         with self.transaction() as c:
             # Serialize identical retries without creating orphan profiles.
-            c.execute("select pg_advisory_xact_lock(hashtextextended(%s,0))",(hash+request.idempotency_key,))
-            existing = c.execute("select id from sm_private.match_sessions where owner_hash=%s and idempotency_key=%s and expires_at>now()",(hash,request.idempotency_key)).fetchone()
+            c.execute("select pg_advisory_xact_lock(hashtextextended(%s,0))",((user_id or hash)+request.idempotency_key,))
+            existing = c.execute("select id from sm_private.match_sessions where (owner_hash=%s or user_id=%s::uuid) and idempotency_key=%s and (expires_at is null or expires_at>now())",(hash,user_id,request.idempotency_key)).fetchone()
             if existing:
                 return str(existing["id"])
             c.execute("delete from sm_private.match_sessions where owner_hash=%s and idempotency_key=%s and expires_at<=now()",(hash,request.idempotency_key))
             id, profile_id, job_id = str(uuid4()),str(uuid4()),str(uuid4())
-            expiry = datetime.now(UTC)+timedelta(days=30)
+            expiry = None if user_id else datetime.now(UTC)+timedelta(days=30)
             c.execute("insert into sm_private.candidate_profiles values(%s,%s,%s,%s,%s,%s,now(),%s)",(profile_id,user_id,hash,Jsonb(request.profile.model_dump()),Jsonb(request.identity.model_dump()),Jsonb(request.visa_context.model_dump()) if request.visa_context else None,expiry))
             c.execute("insert into sm_private.match_sessions(id,profile_id,user_id,owner_hash,idempotency_key,status,expires_at) values(%s,%s,%s,%s,%s,'queued',%s)",(id,profile_id,user_id,hash,request.idempotency_key,expiry))
+            if paid:
+                c.execute('update sm_private.match_sessions set billing_environment=%s where id=%s',(credit_environment(),id))
+                lock_account(c,user_id)
+                Credits(self).reserve_in(c,user_id,id)
             c.execute("insert into sm.work_items(id,kind,dedupe_key,payload) values(%s,'match',%s,%s)",(job_id,"match:"+id,Jsonb({"session_id":id})))
             return id
 
     def owned_session(self, id, token, user_id=None):
-        return self.one("select s.*,p.profile,p.identity,p.visa_context from sm_private.match_sessions s join sm_private.candidate_profiles p on p.id=s.profile_id where s.id=%s and s.expires_at>now() and (s.owner_hash=%s or (%s::uuid is not null and s.user_id=%s::uuid))",(id,owner_hash(token),user_id,user_id))
+        return self.one("select s.*,p.profile,p.identity,p.visa_context from sm_private.match_sessions s join sm_private.candidate_profiles p on p.id=s.profile_id where s.id=%s and (s.expires_at is null or s.expires_at>now()) and (s.owner_hash=%s or (%s::uuid is not null and s.user_id=%s::uuid))",(id,owner_hash(token),user_id,user_id))
 
     def claim_work(self,kinds=None):
         return self.one("""with item as (select id from sm.work_items where available_at<=now() and (%s::text[] is null or kind=any(%s::text[])) and (state='pending' or (state='running' and leased_until<now())) order by available_at,created_at for update skip locked limit 1)
@@ -205,15 +212,33 @@ class Database:
     def fail_work(self, item, code, max_attempts=3):
         dead = item["attempts"] >= max_attempts
         with self.transaction() as c:
+            if dead and item['kind']=='match':
+                owner=c.execute('select user_id from sm_private.match_sessions where id=%s',(item['payload']['session_id'],)).fetchone()
+                if owner and owner['user_id']:
+                    from .billing import lock_account
+                    lock_account(c,owner['user_id'])
             c.execute("update sm.work_items set state=%s,error_code=%s,leased_until=null,available_at=now()+(%s * interval '1 second') where id=%s",("dead" if dead else "pending",code,min(300,2**item["attempts"]),item["id"]))
             if dead and item["kind"]=="match":
-                c.execute("update sm_private.match_sessions set status='failed',error_code=%s where id=%s and revision=%s",(code,item["payload"]["session_id"],item["payload"].get("revision",0)))
+                sid=item['payload']['session_id']
+                updated=c.execute("update sm_private.match_sessions set status='failed',error_code=%s where id=%s and revision=%s",(code,sid,item['payload'].get('revision',0))).rowcount
+                if not updated:return
+                c.execute("update sm_private.credit_reservations set state='released' where session_id=%s and state='reserved'",(sid,))
+                c.execute('update sm_private.billing_accounts set preview_session=null where preview_session=%s',(sid,))
 
     def save_results(self, id, results, mode, versions, revision=None):
+        from .billing import Credits,lock_account
         with self.transaction() as c:
-            current=c.execute("select revision from sm_private.match_sessions where id=%s for update",(id,)).fetchone()
-            if not current or (revision is not None and current['revision']!=revision):return
+            owner=c.execute('select user_id,status from sm_private.match_sessions where id=%s',(id,)).fetchone()
+            if not owner:return results,mode,versions
+            if owner['user_id']:lock_account(c,owner['user_id'])
+            previous=c.execute('select status,revision from sm_private.match_sessions where id=%s for update',(id,)).fetchone()
+            if revision is not None and previous['revision']!=revision:return results,mode,versions
+            if previous['status']=='ready':return results,mode,versions
             c.execute("delete from sm_private.match_results where session_id=%s",(id,))
             for i,result in enumerate(results):
                 c.execute("insert into sm_private.match_results values(%s,%s,%s,%s,%s,%s,%s,%s)",(id,result.employer_id,i,result.group,result.score,Jsonb(result.features),Jsonb(result.explanation),result.employer_version))
+            if owner['user_id']:
+                real=c.execute('select exists(select 1 from sm_private.match_results r join sm.employers e on e.id=r.employer_id where r.session_id=%s and not e.is_demo) ok',(id,)).fetchone()['ok']
+                Credits(self).settle_in(c,owner['user_id'],id,real)
+                if not real:c.execute('update sm_private.billing_accounts set preview_session=null where user_id=%s and preview_session=%s',(owner['user_id'],id))
             c.execute("update sm_private.match_sessions set status='ready',stage='Your shortlist is ready',retrieval_mode=%s,versions=%s,error_code=null where id=%s",(mode,Jsonb(versions),id))

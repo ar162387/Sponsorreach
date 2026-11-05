@@ -1,0 +1,7 @@
+ 'use client';
+import {useState} from 'react';
+import {useRouter} from 'next/navigation';
+export default function AdminLogin(){const router=useRouter();const[email,setEmail]=useState(''),[password,setPassword]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false);
+ async function submit(e:React.FormEvent){e.preventDefault();setBusy(true);setError('');try{const r=await fetch('/api/auth/admin-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});const data=await r.json();setPassword('');if(!r.ok)throw new Error(data.error||'Unable to sign in.');router.refresh();}catch(e){setError((e as Error).message);}finally{setBusy(false);}}
+ return <section className="shell billing-shell"><p className="eyebrow">STAFF WORKSPACE</p><h1>Administrator sign-in.</h1><form onSubmit={submit} className="support-form"><label htmlFor="admin-email">Email</label><input id="admin-email" type="email" autoComplete="username" required maxLength={254} value={email} onChange={e=>setEmail(e.target.value)}/><label htmlFor="admin-password">Password</label><input id="admin-password" type="password" autoComplete="current-password" required maxLength={1024} value={password} onChange={e=>setPassword(e.target.value)}/><button className="button" disabled={busy}>{busy?'Signing in…':'Sign in'}</button>{error&&<p className="error" role="alert">{error}</p>}</form></section>;
+}

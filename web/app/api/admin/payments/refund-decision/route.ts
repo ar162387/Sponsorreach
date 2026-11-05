@@ -1,0 +1,4 @@
+import {NextResponse} from 'next/server';
+import {account,internal,BillingError} from '@/lib/billing-server';
+import {sameOrigin} from '@/lib/server';
+export async function POST(request:Request){try{if(!sameOrigin(request))throw new BillingError('Invalid origin',403);const actor=await account(true);const raw=await request.text();if(raw.length>2000)throw new BillingError('Request too large',413);const body=JSON.parse(raw);if(typeof body.request_id!=='string'||typeof body.note!=='string')throw new BillingError('Refund reference and provider decision note required',422);return NextResponse.json(await internal('refund-decision',{user_id:actor.id,request_id:body.request_id,note:body.note}));}catch(e){return NextResponse.json({error:e instanceof BillingError?e.message:'Could not record the provider decision'},{status:e instanceof BillingError?e.status:400});}}

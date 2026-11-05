@@ -1,5 +1,7 @@
 # SponsorReach UK writing guide
 
+> Historical guide for the existing website. The [unpublished paid-launch package](paid-launch/README.md) supersedes the deadline-led positioning and example-price offer for the planned release. The website has not changed.
+
 ## Position and audience
 
 SponsorReach UK helps people identify relevant UK licensed sponsor companies and use available contact/application routes to approach them directly. The primary reader is an international graduate already in the UK on a Graduate visa, commonly called PSW. Other people seeking sponsorship can use the same professional intake.

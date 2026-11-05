@@ -292,7 +292,7 @@ def enqueue_refresh(db,index_version):
 
 def cohort_report(db):
     """Operator-only aggregates; do not export owner or candidate identifiers."""
-    rows=db.rows("select profile_id,user_id,owner_hash,versions->'prospect_cohorts' cohorts from sm_private.match_sessions where status='ready' and expires_at>now()")
+    rows=db.rows("select profile_id,user_id,owner_hash,versions->'prospect_cohorts' cohorts from sm_private.match_sessions where status='ready' and (expires_at is null or expires_at>now())")
     buckets={};owners=set();with_analysis=0;unresolved=0
     for row in rows:
         owner=('account',str(row['user_id'])) if row['user_id'] else ('anonymous',row['owner_hash'])
@@ -323,7 +323,7 @@ def refresh_cohorts(db,settings,limit=100,expected_version=None,library=None,ses
     if expected_version and expected_version!=version:return {'status':'obsolete_model','updated':0}
     rows=db.rows("""select s.id,s.profile_id,p.profile from sm_private.match_sessions s
         join sm_private.candidate_profiles p on p.id=s.profile_id
-        where s.status='ready' and s.expires_at>now()
+        where s.status='ready' and (s.expires_at is null or s.expires_at>now())
         and (%s::uuid[] is null or s.id=any(%s::uuid[]))
         and (coalesce(s.versions->'prospect_cohorts'->>'model_version','')<>%s
              or coalesce(s.versions->'prospect_cohorts'->>'algorithm','')<>%s)
@@ -338,7 +338,7 @@ def refresh_cohorts(db,settings,limit=100,expected_version=None,library=None,ses
             if not library.load() or library.version!=version:
                 return {'status':'model_changed','updated':updated,'model_version':version}
         with db.transaction() as c:
-            saved=c.execute("select versions from sm_private.match_sessions where id=%s and profile_id=%s and status='ready' and expires_at>now() for update",(row['id'],row['profile_id'])).fetchone()
+            saved=c.execute("select versions from sm_private.match_sessions where id=%s and profile_id=%s and status='ready' and (expires_at is null or expires_at>now()) for update",(row['id'],row['profile_id'])).fetchone()
             if not saved:continue
             versions=dict(saved['versions'] or {});previous=versions.get('prospect_cohorts',{})
             if previous.get('model_version')==version and previous.get('algorithm')==COHORT_VERSION:continue

@@ -12,7 +12,7 @@ export default function PersonalizedLoader({ stage, context, error }: { stage?: 
   const messages = useMemo(() => loadingMessages(context), [contextKey]);
   const [index, setIndex] = useState(0), [paused, setPaused] = useState(false), [visible, setVisible] = useState(true);
   useEffect(() => {
-    const media = window.matchMedia('(prefers-reduced-motion: reduce)'); setPaused(media.matches);
+    const media = window.matchMedia('(prefers-reduced-motion reduce)'); setPaused(media.matches);
     const change = (event: MediaQueryListEvent) => setPaused(event.matches);
     const visibility = () => setVisible(!document.hidden);
     visibility(); media.addEventListener('change', change); document.addEventListener('visibilitychange', visibility);

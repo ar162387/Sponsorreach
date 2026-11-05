@@ -33,10 +33,10 @@ from uuid import uuid4
 
 db = Database(runtime['DATABASE_URL'])
 db.open()
+session_id=None
+row=None
 try:
     profile = Profile.model_validate({'background': {'subject': 'Computer science', 'specialization': 'Software development'}, 'role_intents': [{'raw_label': 'software developer', 'confirmed': True}], 'career_stage': 'graduate', 'skills': [{'label': 'Python'}, {'label': 'SQL'}], 'experience_summary': 'Built and tested a database-backed web application.', 'location': {'preferred_regions': ['London'], 'relocate': True}, 'preferred_industries': ['Software'], 'related_roles_enabled': False})
-    if len(sys.argv) > 1:
-        profile.experience_summary += ' ' + sys.argv[1]
     started = time.monotonic()
     owner = secrets.token_urlsafe(40)
     payload = {'profile': profile.model_dump(), 'identity': {'name': 'Deployment smoke check', 'email': 'deployment-check@example.invalid'}, 'idempotency_key': 'deployment-' + uuid4().hex}
@@ -53,15 +53,24 @@ try:
     assert row['status'] == 'ready', 'Worker failed: ' + str(row['error_code'])
     assert row['retrieval_mode'] == 'hybrid', 'Embedding retrieval did not run'
     count = db.one("select count(*) n from sm_private.match_results where session_id=%s", (session_id,))['n']
-    assert count, 'Expected supported software employers in the published catalogue'
+    source=db.one("select publication_date,current_date today from sm.source_artifacts where id=%s",(db.active_snapshot(),))
+    fresh=bool(source and 0<=(source['today']-source['publication_date']).days<=7)
+    if fresh:
+        assert count, 'Expected supported software employers in the published catalogue'
+    else:
+        # A stale official register is a known pre-existing launch blocker. Do not relax eligibility.
+        assert runtime.get('BILLING_MODE','off')=='off' and runtime.get('BILLING_CHECKOUT_ENABLED','false')=='false', 'Stale source forbids paid rollout'
+        assert count==0, 'Stale sponsor records must not be recommended'
+        print(json.dumps({'research_available':False,'reason':'official_register_expired','source_date':str(source['publication_date']) if source else None,'sales_disabled':True}),flush=True)
     request = urllib.request.Request('http://127.0.0.1:8001/api/matches/' + session_id, headers=headers)
     with urllib.request.urlopen(request, timeout=20) as response: public = json.load(response)
     assert public['verification_required'] and 'preview' not in public, 'Email gate leaked results'
     print(json.dumps({'matches': count, 'mode': row['retrieval_mode'], 'match_seconds': round(time.monotonic() - started, 2), 'ranking': row['versions']['ranking'], 'email_gate': 'passed'}), flush=True)
-    # Remove only the exact successful synthetic session created by this script.
-    with db.transaction() as connection:
-        connection.execute("delete from sm.work_items where dedupe_key=%s", ('match:' + session_id,))
-        connection.execute("delete from sm_private.match_sessions where id=%s", (session_id,))
-        connection.execute("delete from sm_private.candidate_profiles where id=%s", (row['profile_id'],))
 finally:
+    if session_id:
+        created=db.one('select profile_id from sm_private.match_sessions where id=%s',(session_id,))
+        with db.transaction() as connection:
+            connection.execute("delete from sm.work_items where dedupe_key=%s", ('match:' + session_id,))
+            connection.execute("delete from sm_private.match_sessions where id=%s", (session_id,))
+            if created:connection.execute("delete from sm_private.candidate_profiles where id=%s", (created['profile_id'],))
     db.close()

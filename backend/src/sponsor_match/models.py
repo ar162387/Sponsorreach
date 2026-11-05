@@ -162,6 +162,7 @@ class Feedback(Model):
 
 
 class ShortlistRefresh(Model):
+    accept_credit_cost: bool = False
     profile: Profile | None = None
     visa_context: VisaContext | None = None
     idempotency_key: str = Field(min_length=16, max_length=120)

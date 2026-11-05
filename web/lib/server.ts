@@ -52,3 +52,9 @@ export function sameOrigin(request: Request) {
   try { const source = new URL(origin); return ['http:', 'https:'].includes(source.protocol) && source.host === request.headers.get('host'); } catch { return false; }
 }
 export function publicOrigin(request: Request) { return process.env.APP_ORIGIN || new URL(request.url).protocol + '//' + (request.headers.get('host') || new URL(request.url).host); }
+
+export function isAdministrator(user: {id:string;email?:string|null}) {
+ const ids=(process.env.SPONSORREACH_ADMIN_USER_IDS||'').split(',').map(id=>id.trim()).filter(Boolean);
+ const email=process.env.SPONSORREACH_ADMIN_EMAIL?.trim().toLowerCase();
+ return ids.length===1&&/^[a-f0-9-]{36}$/i.test(ids[0])&&ids[0]===user.id&&!!email&&user.email?.toLowerCase()===email;
+}

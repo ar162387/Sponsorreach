@@ -1,0 +1,11 @@
+{
+  "slug": "sponsorreach-monthly-usd-2499-v1",
+  "environment": "test",
+  "name": "SponsorReach Monthly",
+  "product_id": "5add1d62-3893-4f8d-bab6-8fe3e82eba5b",
+  "amount_minor": 2499,
+  "currency": "USD",
+  "interval": "month",
+  "credits": 800,
+  "active": true
+}

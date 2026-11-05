@@ -1,5 +1,7 @@
 # SponsorReach UK
 
+AgentaOS payment tooling is prepared, with checkout implementation deferred. See [AgentaOS setup](docs/AGENTAOS_SETUP.md) for the Codex connection, currency preference and activation steps.
+
 > **Current catalogue update (17 October):** the full operator-authorized CSV baseline supersedes the earlier 39/276-company pool: 7,309 retained employers and 9,137 search embeddings, including 848 identity/contact-only records. See [full CSV baseline](docs/CSV_BASELINE.md) for counts, import policy and evaluation limits. Earlier dated measurements below are historical.
 
 > **Latest evaluation:** 201 backend tests pass. Experimental matcher 15 with the generalized proposal generator reaches 4,830/7,309 employers across 12,223 confirmed synthetic profiles (11 gains, no losses versus the previous profile set). The new occupation-stratified 144-profile development matrix exposes major relevance failures: AI-reviewed mean returned direct Precision@3 is 42.6% across 18 sampled occupations. This is not independent human accuracy. Live search retains its existing baseline. Reports and limitations: http://127.0.0.1:4019/ and [PROSPECT_COVERAGE.md](docs/PROSPECT_COVERAGE.md). The full goal remains incomplete.
@@ -108,7 +110,7 @@ When embeddings are unavailable, search explicitly records `lexical_concept_fall
 
 Opaque browser ownership tokens are HttpOnly. The server stores only their hashes. The Next.js gateway keeps the private API secret out of browser code. Results are persisted before preview; locked company identifiers/contact fields are never returned to the browser. Demo unlock reveals the same saved ranking.
 
-For email authentication, set `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` in both web and backend environments. Live mode defaults to `REQUIRE_VERIFIED_EMAIL=true`: previews, result pages, unlock and feedback require an owner-associated verified account. Pending status withholds result counts and company details. Delivery errors are shown and resending reuses the saved shortlist. The callback returns to that shortlist after account association. Configure the Supabase redirect allowlist for `APP_ORIGIN/auth/callback**`, email magic links, and production SMTP. The redirect must support the validated `next` query parameter. PKCE callback exchange is followed by server-side user verification. Account association requires both the browser ownership token and matching verified email; email alone cannot claim another session.
+For email authentication, set `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` in both web and backend environments. Live mode defaults to `REQUIRE_VERIFIED_EMAIL=true`: previews, result pages, unlock and feedback require an owner-associated verified account. Pending status withholds result counts and company details. Delivery errors are shown and resending reuses the saved shortlist. Email sign-in uses a one-time code entered in the app. Configure both Supabase Magic Link and Confirm signup templates with `{{ .Token }}` using `supabase/templates/email-otp.html`; see `docs/EMAIL_SETUP.md`. The legacy callback remains for previously issued links. Account association requires both the browser ownership token and matching verified email; email alone cannot claim another session.
 
 Private `sm` and `sm_private` schemas should remain outside the Supabase Data API. RLS is enabled on all their tables; default grants are denied. The API database connection is private and must have the privileges needed by this service. No service-role secret is sent to clients.
 
@@ -197,9 +199,3 @@ All-facet experimental coverage reached 4,620 employers after evidence-relation 
 ## Evidence alternatives and private cohorts — 17 October
 
 142 backend tests pass. The semantic experiment now checks multiple source alternatives; reach remains incomplete at 4,618/7,309 employers. Versioned derived-interest cohorts are stored privately, refreshed after prospect-model publication, and aggregated without owner/session identifiers. The two existing ready sessions were associated while exact ranking/access/ownership checks stayed unchanged; a background refresh completed successfully. A local NLI probe failed the diagnostic comparison and remains disabled. Current allowlisted operator dashboard: http://127.0.0.1:4019/. See [PROSPECT_COVERAGE.md](docs/PROSPECT_COVERAGE.md).
-
-## Skills and search-quality lab — 18 October
-
-The local candidate uses the full pinned ESCO occupation/skill resource and recorded company spans, with explicit task context, typed knowledge relationships and source-version checks. It remains behind a feature flag; the hosted pilot ranker has not been replaced. See [SKILL_MATCHING.md](docs/SKILL_MATCHING.md).
-
-The private relevance lab compares identical frozen profiles, collects blinded pooled reviews, calculates per-query and occupational-slice metrics, and traces retrieval/fusion/gate/ranking failures. The current local comparison contains 299 profiles across three versions. AI development judgments are distinct from human validation. See [RELEVANCE_EVALUATION.md](docs/RELEVANCE_EVALUATION.md) for research, metric definitions, commands and limitations. Reports and employer data remain outside Git.

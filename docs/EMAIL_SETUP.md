@@ -24,18 +24,21 @@ Save the settings. This configures the provider; successful delivery still needs
 
 Add a domain you own to Resend, add its required DNS records, and wait for verification. A Resend test sender cannot provide general public sign-in mail. In Supabase custom SMTP use host `smtp.resend.com`, port `465`, username `resend`, password your Resend API key, sender name `SponsorReach`, and a sender address on the verified domain. Do not invent an address on a domain you do not own. A sending address is not automatically a mailbox that receives privacy requests.
 
-## Local callback settings
+## Email OTP setup
 
-In Supabase Authentication → URL Configuration:
+The app now requests an email code and verifies it in the browser using Supabase `verifyOtp` with type `email`. Existing accounts, SMTP and saved-shortlist ownership rules stay in place.
 
-- Site URL: `http://127.0.0.1:3000`
-- Additional Redirect URL: `http://127.0.0.1:3000/auth/callback**`
+Before deploying the app change, open Authentication → Email Templates in the Supabase project:
 
-Use `127.0.0.1` consistently in the browser. The suffix permits the application's `next` query parameter. For public deployment, replace local settings with the actual HTTPS application origin and its callback. Local links only work on the computer running this website, so remote pilot users also need a hosted application.
+1. Set both **Magic Link** (returning users) and **Confirm signup** (new users) to the HTML in `supabase/templates/email-otp.html`.
+2. Set the subject to `Your SponsorReach sign-in code` for both templates. The body must contain `{{ .Token }}` instead of a confirmation link.
+3. Keep the existing SMTP sender and credentials. Review Email OTP expiration and rate limits in Authentication settings. The form accepts 6–10 digit codes and offers resend after 60 seconds; Supabase enforces the actual limits and expiry.
 
-Keep the magic-link template's confirmation URL in place and disable provider link tracking if enabled. No user password is required by the website.
+The connected Supabase tools cannot update Auth templates. These hosted template changes and real email delivery have not been verified as part of this code change.
 
-After setup, test onboarding with your own address, confirm that delivery and callback work in the same browser, check that previews appear only after verification, and verify that another browser cannot access the saved session. Check Supabase Auth logs for SMTP or redirect errors. No real delivery has been tested yet.
+Test both a new address and an existing account: request a code, read the email on a different device, and enter it in the requesting browser. Confirm successful sign-in, saved shortlist association and existing credits. Also test an incorrect code, an expired code, resend and reuse of a consumed code. A different browser must not claim a guest shortlist using email alone.
+
+The old `/auth/callback` route remains for previously issued links. Its existing redirect allowlist may remain configured; the new OTP flow does not use it.
 
 Supabase's built-in mail is restricted to project-team addresses and currently two messages per hour. It is insufficient for public signup. Custom SMTP initially has its own Auth rate limit; review Authentication → Rate Limits before a pilot.
 

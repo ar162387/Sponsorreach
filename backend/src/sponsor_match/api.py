@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC,datetime
 from uuid import UUID,uuid4
 import hmac
+import os
 import httpx
 from fastapi import FastAPI,Header,HTTPException,Request
 from psycopg.types.json import Jsonb
@@ -10,6 +11,7 @@ from .db import Database,owner_hash
 from .models import Profile,MatchRequest,Feedback,Identity,ShortlistRefresh,SavedState
 from .ranking import sponsor_valid,usable_channels,open_jobs
 from .presentation import displayed_channels,short_match_reason
+from .billing import Credits,InsufficientCredits,billing_enabled,spending_enabled,cost,credit_environment
 
 
 def create_app(settings=None,db=None):
@@ -60,10 +62,16 @@ def create_app(settings=None,db=None):
             if not value.get("email_confirmed_at"):
                 raise HTTPException(401,"Verify your email first")
             UUID(value["id"])
+            Credits(db).ensure_signup(value['id'])
             request.state.verified_account=value
             return value
         except (httpx.HTTPError,ValueError,KeyError):
             raise HTTPException(401,"Your sign-in session could not be verified")
+
+    from .billing_gateway import install_billing_gateway
+    install_billing_gateway(app,db)
+    from .admin import install_admin
+    install_admin(app,db,user,os.getenv('SPONSORREACH_ADMIN_USER_IDS',''))
 
     def owned(id,request):
         account=user(request)
@@ -94,7 +102,7 @@ def create_app(settings=None,db=None):
         return accepted
 
     def verified_access(session,request):
-        if not settings.require_verified_email:return True
+        if not settings.require_verified_email and not billing_enabled():return True
         account=user(request)
         return bool(account and session['user_id'] and str(session['user_id'])==account['id'])
 
@@ -115,6 +123,33 @@ def create_app(settings=None,db=None):
         profile.role_intents=[r.model_copy(update={'concept_id':db.taxonomy().resolve(r.raw_label).id if db.taxonomy().resolve(r.raw_label) else None}) for r in profile.role_intents]
         return profile
 
+    def authorised_rows(session,request,rows):
+        if not billing_enabled():return rows if session['access']!='preview' else rows[:3]
+        account=user(request,True)
+        if str(session['user_id'])!=account['id']:raise HTTPException(404,'Shortlist not found')
+        if session.get('billing_environment') and session['billing_environment']!=credit_environment():return []
+        if session['access'] in ('demo_unlocked','paid'):return rows
+        grants=db.rows("select batch from sm_private.batch_entitlements where user_id=%s and session_id=%s and environment in (%s,'legacy')",(account['id'],session['id'],credit_environment()))
+        batches={r['batch'] for r in grants}
+        return [(r,e) for r,e in rows if r['rank']//20 in batches]
+
+    @app.post('/api/matches/{id}/batches/{batch}/unlock')
+    def unlock_batch(id:UUID,batch:int,request:Request):
+        if not billing_enabled() or not spending_enabled():raise HTTPException(503,'Credit spending is paused')
+        account=user(request,True);s=owned(id,request)
+        if str(s['user_id'])!=account['id']:raise HTTPException(404,'Shortlist not found')
+        if s.get('billing_environment') and s['billing_environment']!=credit_environment():raise HTTPException(409,'This shortlist belongs to another payment environment')
+        if s['status']!='ready' or not 0<=batch<=7:raise HTTPException(409,'Batch unavailable')
+        if s['access'] in ('demo_unlocked','paid'):return {'charged':False,'legacy':True}
+        rows=[(r,e) for r,e in visible_results(s) if batch*20<=r['rank']<(batch+1)*20]
+        if any(e.is_demo for _,e in rows):raise HTTPException(409,'Sample results cannot consume credits')
+        if not rows:return {'charged':False,'empty':True}
+        try:
+            with db.transaction() as c:
+                charged=Credits(db).unlock_in(c,account['id'],str(id),batch,True)
+            return {'charged':charged,'balance':Credits(db).summary(account['id'])['available']}
+        except InsufficientCredits:raise HTTPException(402,'Insufficient credits. Open billing to subscribe.')
+
     @app.get("/health")
     def health():
         db.one("select 1 as ok")
@@ -124,7 +159,7 @@ def create_app(settings=None,db=None):
     def catalogue():
         counts=db.one("select count(*) filter(where not is_demo) as imported,count(*) filter(where is_demo) as demo,count(*) filter(where identity_status='accepted' and not is_demo) as identity_reviewed from sm.employers")
         indexed=db.one('select count(*) as embedding_documents,count(distinct employer_id) as indexed_employers from sm.search_index_documents where index_id=(select id from sm.search_index_versions where active)')
-        return {**counts,**indexed,"identity_accepted":counts['identity_reviewed'],"has_official_snapshot":bool(db.active_snapshot()),"demonstration":bool(counts["demo"]),"email_signin_available":bool(settings.supabase_url and settings.supabase_publishable_key),"requires_email_verification":settings.require_verified_email,"demo_price_gbp":settings.demo_price_gbp}
+        return {"credit_mode":billing_enabled(),**counts,**indexed,"identity_accepted":counts['identity_reviewed'],"has_official_snapshot":bool(db.active_snapshot()),"demonstration":bool(counts["demo"]),"email_signin_available":bool(settings.supabase_url and settings.supabase_publishable_key),"requires_email_verification":settings.require_verified_email,"demo_price_gbp":settings.demo_price_gbp}
 
     @app.post("/api/profiles/suggestions")
     def profile_suggestions(body:dict):
@@ -160,19 +195,21 @@ def create_app(settings=None,db=None):
             raise HTTPException(422,{"code":"profile_needs_clarification","normalization":normalized})
         # Submitted concept IDs never bypass normalization or authorize ranking.
         body.profile.role_intents=[r.model_copy(update={"concept_id":db.taxonomy().resolve(r.raw_label).id if db.taxonomy().resolve(r.raw_label) else None}) for r in body.profile.role_intents]
-        account=user(request)
+        account=user(request,True) if billing_enabled() else user(request)
         if account:
             saved=db.one("select identity from sm_private.candidate_profiles where user_id=%s order by created_at desc limit 1",(account["id"],))
             name=(saved or {}).get("identity",{}).get("name") or account.get("user_metadata",{}).get("name") or account["email"]
             body.identity=Identity(name=name,email=account["email"])
         elif body.identity is None:
             raise HTTPException(422,"Enter your name and email, or sign in before continuing")
-        id=db.create_session(body,token(request),account["id"] if account else None)
+        try:id=db.create_session(body,token(request),account["id"] if account else None)
+        except InsufficientCredits:raise HTTPException(402,'Insufficient credits. Open billing to subscribe.')
+        except ValueError as exc:raise HTTPException(503,str(exc))
         return {"session_id":id,"status":"queued","verification_required":settings.require_verified_email and account is None}
 
     @app.get("/api/matches/history")
     def history(request:Request):
-        rows=db.rows("select id,status,created_at,access from sm_private.match_sessions where owner_hash=%s and expires_at>now() order by created_at desc limit 30",(owner_hash(token(request)),))
+        rows=db.rows("select id,status,created_at,access from sm_private.match_sessions where owner_hash=%s and (expires_at is null or expires_at>now()) order by created_at desc limit 30",(owner_hash(token(request)),))
         return {"sessions":rows}
 
     @app.get("/api/matches/{id}")
@@ -190,9 +227,15 @@ def create_app(settings=None,db=None):
             'locations':profile.location.preferred_regions,'related_roles_enabled':profile.related_roles_enabled}
         if s["status"]=="ready":
             results=visible_results(s)
-            preview=results if s["access"]!="preview" else results[:3]
+            preview=authorised_rows(s,request,results)
             saved=bookmark_ids(request)
-            data.update({"next_cursor":20 if len(preview)>20 else None,"preview":[card(r,e,e.id in saved) for r,e in preview[:20]],"preview_count":min(3,len(results)),"total_count":len(results),"locked_count":max(0,len(results)-3) if s["access"]=="preview" else 0,"direct_count":sum(r["group_name"]=="direct" for r,e in results),"related_count":sum(r["group_name"]=="related" for r,e in results),"is_demo":any(e.is_demo for r,e in results),"retrieval_mode":s["retrieval_mode"]})
+            initial=[(r,e) for r,e in preview if r["rank"]<20] if billing_enabled() else preview[:20]
+            next_pages=[r["rank"]//20*20 for r,e in preview if r["rank"]>=20]
+            data.update({"next_cursor":min(next_pages) if billing_enabled() and next_pages else (20 if not billing_enabled() and len(preview)>20 else None),"preview":[card(r,e,e.id in saved) for r,e in initial],"preview_count":len(initial),"total_count":len(results),"locked_count":len(results)-len(preview),"direct_count":sum(r["group_name"]=="direct" for r,e in results),"related_count":sum(r["group_name"]=="related" for r,e in results),"is_demo":any(e.is_demo for r,e in results),"retrieval_mode":s["retrieval_mode"]})
+            if billing_enabled():
+                permitted={r['rank'] for r,_ in preview}
+                locked=[r['rank']//20 for r,_ in results if r['rank'] not in permitted]
+                data.update(credit_mode=True,next_locked_batch=min(locked) if locked else None,balance=Credits(db).summary(user(request,True)['id'])['available'])
         return data
 
     @app.get("/api/matches/{id}/results")
@@ -202,9 +245,15 @@ def create_app(settings=None,db=None):
         if cursor<0 or cursor>150:
             raise HTTPException(422,"Invalid result cursor")
         rows=visible_results(s)
+        saved=bookmark_ids(request)
+        if billing_enabled():
+            if cursor%20:raise HTTPException(422,'Use a batch boundary')
+            allowed=authorised_rows(s,request,rows)
+            selected=[(r,e) for r,e in allowed if cursor<=r['rank']<cursor+20]
+            remaining=[r['rank']//20*20 for r,_ in allowed if r['rank']>=cursor+20]
+            return {'results':[card(r,e,e.id in saved) for r,e in selected],'next_cursor':min(remaining) if remaining else None,'total_count':len(rows),'access':s['access']}
         limit=len(rows) if s["access"]!="preview" else min(3,len(rows))
         selected=rows[cursor:min(cursor+20,limit)]
-        saved=bookmark_ids(request)
         return {"results":[card(r,e,e.id in saved) for r,e in selected],"next_cursor":cursor+20 if cursor+20<limit else None,"total_count":len(rows),"access":s["access"]}
 
     @app.post('/api/matches/{id}/refresh',status_code=202)
@@ -212,6 +261,14 @@ def create_app(settings=None,db=None):
         session=owned(id,request)
         require_result_access(session,request)
         profile=normalized_profile(body.profile) if body.profile else None
+        if billing_enabled():
+            if not body.accept_credit_cost:raise HTTPException(422,'Confirm the 1-credit cost before running a revised search')
+            account=user(request,True)
+            revised=MatchRequest(profile=profile or Profile.model_validate(session['profile']),identity=Identity.model_validate(session['identity']),visa_context=body.visa_context,idempotency_key='refresh:'+str(id)+':'+owner_hash(body.idempotency_key)[:32])
+            try:new_id=db.create_session(revised,token(request),account['id'])
+            except InsufficientCredits:raise HTTPException(402,'Insufficient credits. Open billing to subscribe.')
+            except ValueError as exc:raise HTTPException(503,str(exc))
+            return {'session_id':new_id,'status':'queued'}
         with db.transaction() as c:
             current=c.execute('select * from sm_private.match_sessions where id=%s for update',(str(id),)).fetchone()
             if current['refresh_key']==body.idempotency_key:
@@ -243,7 +300,7 @@ def create_app(settings=None,db=None):
         require_result_access(session,request)
         if str(session['user_id'])!=account['id']:raise HTTPException(404,'Shortlist not found')
         rows=visible_results(session)
-        visible=rows if session['access']!='preview' else rows[:3]
+        visible=authorised_rows(session,request,rows)
         row=next((r for r,e in visible if e.id==str(employer_id)),None)
         if not row:raise HTTPException(404,'Result not accessible')
         if body.saved:
@@ -261,6 +318,7 @@ def create_app(settings=None,db=None):
 
     @app.post("/api/matches/{id}/demo-unlock")
     def unlock(id:UUID,request:Request):
+        if billing_enabled():raise HTTPException(410,'Use credit batch unlocking')
         s=owned(id,request)
         require_result_access(s,request)
         if s["status"]!="ready":
@@ -279,11 +337,41 @@ def create_app(settings=None,db=None):
         s=owned(body.session_id,request)
         require_result_access(s,request)
         rows=visible_results(s)
-        visible=rows if s["access"]!="preview" else rows[:3]
+        visible=authorised_rows(s,request,rows)
         if body.employer_id not in {e.id for _,e in visible}:
             raise HTTPException(404,"Result not accessible")
         db.execute("insert into sm_private.feedback_events values(%s,%s,%s,%s,%s,%s,now())",(str(uuid4()),body.session_id,body.employer_id,body.event,body.position,body.note))
         return {"saved":True}
+
+    @app.get('/api/account/allowance')
+    def allowance(request:Request):
+        if not billing_enabled():return {'credit_mode':False,'available':0,'preview_available':True}
+        account=user(request,True)
+        state=Credits(db).summary(account['id'])
+        return {'credit_mode':True,'available':state['available'],'signup_credits':state['signup_credits'],'preview_available':False}
+
+    @app.get('/api/account/credit-summary')
+    def credit_summary(request:Request):
+        state=Credits(db).summary(user(request,True)['id'])
+        return {key:state[key] for key in ('available','signup_credits','reserved','subscription')}
+
+    @app.get('/api/account/billing')
+    def billing_summary(request:Request):
+        from .billing import Credits
+        return Credits(db).summary(user(request,True)['id'])
+
+    @app.get('/api/account/usage')
+    def billing_usage(request:Request,period_id:UUID|None=None):
+        from .billing import Credits
+        account=user(request,True)
+        try:return Credits(db).usage(account['id'],period_id)
+        except ValueError:raise HTTPException(404,'Billing period not found')
+
+    @app.get('/api/account/credit-history')
+    def billing_history(request:Request,offset:int=0):
+        account=user(request,True)
+        if offset<0 or offset>100000:raise HTTPException(422,'Invalid history offset')
+        return {'entries':db.rows('select l.id,l.created_at,l.kind,l.delta,l.session_id from sm_private.credit_ledger l left join sm_private.billing_periods p on p.id=l.period_id left join sm_private.billing_subscriptions s on s.id=p.subscription_id where l.user_id=%s and (s.environment=%s or l.period_id is null) order by l.created_at desc,l.id desc limit 20 offset %s',(account['id'],credit_environment(),offset))}
 
     @app.get("/api/account/identity")
     def account_identity(request:Request):
@@ -297,17 +385,17 @@ def create_app(settings=None,db=None):
             session=owned(session_id,request)
             if str(session['user_id'])!=account['id']:raise HTTPException(404,'Shortlist not found')
             saved={'profile':session['profile']}
-        else:saved=db.one("select profile from sm_private.candidate_profiles where user_id=%s and expires_at>now() order by created_at desc limit 1",(account['id'],))
+        else:saved=db.one("select profile from sm_private.candidate_profiles where user_id=%s and (expires_at is null or expires_at>now()) order by created_at desc limit 1",(account['id'],))
         return {'profile':Profile.model_validate(saved['profile']).model_dump(mode='json') if saved else None,
                 'account_key':owner_hash('onboarding:'+str(account['id']))}
 
     @app.get('/api/account/overview')
     def account_overview(request:Request):
         account=user(request,True)
-        saved=db.one("select identity,profile from sm_private.candidate_profiles where user_id=%s and expires_at>now() order by created_at desc limit 1",(account['id'],))
+        saved=db.one("select identity,profile from sm_private.candidate_profiles where user_id=%s and (expires_at is null or expires_at>now()) order by created_at desc limit 1",(account['id'],))
         rows=db.rows("""select s.id,s.status,s.created_at,s.updated_at,s.starred,s.access,p.profile
             from sm_private.match_sessions s join sm_private.candidate_profiles p on p.id=s.profile_id
-            where s.user_id=%s and p.user_id=%s and s.expires_at>now() and p.expires_at>now()
+            where s.user_id=%s and p.user_id=%s and (s.expires_at is null or s.expires_at>now()) and (p.expires_at is null or p.expires_at>now())
             order by s.starred desc,s.created_at desc limit 100""",(account['id'],account['id']))
         sessions=[]
         for row in rows:
@@ -331,7 +419,7 @@ def create_app(settings=None,db=None):
     @app.get("/api/account/matches")
     def account_matches(request:Request):
         account=user(request,True)
-        return {"sessions":db.rows("select id,status,access,created_at from sm_private.match_sessions where user_id=%s and expires_at>now() order by created_at desc limit 30",(account["id"],))}
+        return {"sessions":db.rows("select id,status,access,created_at from sm_private.match_sessions where user_id=%s and (expires_at is null or expires_at>now()) order by created_at desc limit 30",(account["id"],))}
 
     @app.post('/api/matches/{id}/confirmation')
     def confirmation(id:UUID,request:Request):
@@ -343,8 +431,8 @@ def create_app(settings=None,db=None):
     def associate(request:Request):
         account=user(request,True)
         # Both browser proof and confirmed email are necessary; email alone cannot claim sessions.
-        count=db.execute("update sm_private.match_sessions s set user_id=%s from sm_private.candidate_profiles p where p.id=s.profile_id and s.owner_hash=%s and lower(p.identity->>'email')=%s and (s.user_id is null or s.user_id=%s)",(account["id"],owner_hash(token(request)),account["email"].casefold(),account["id"]))
-        db.execute("update sm_private.candidate_profiles p set user_id=%s where p.owner_hash=%s and lower(p.identity->>'email')=%s and (p.user_id is null or p.user_id=%s)",(account["id"],owner_hash(token(request)),account["email"].casefold(),account["id"]))
+        count=db.execute("update sm_private.match_sessions s set user_id=%s,expires_at=null from sm_private.candidate_profiles p where p.id=s.profile_id and s.owner_hash=%s and lower(p.identity->>'email')=%s and (s.user_id is null or s.user_id=%s)",(account["id"],owner_hash(token(request)),account["email"].casefold(),account["id"]))
+        db.execute("update sm_private.candidate_profiles p set user_id=%s,expires_at=null where p.owner_hash=%s and lower(p.identity->>'email')=%s and (p.user_id is null or p.user_id=%s)",(account["id"],owner_hash(token(request)),account["email"].casefold(),account["id"]))
         return {"associated":count}
 
     return app

@@ -24,6 +24,7 @@ export type EmployerCard = {
 export type LoadingContext = { roles: string[]; background: string; specialization: string; skills: string[]; locations: string[]; related_roles_enabled: boolean };
 export type VisaContext = { route: string; expiry: string | null };
 export type MatchSession = {
+  credit_mode?:boolean; next_locked_batch?:number|null; balance?:number;
   profile?: Profile; visa_context?: VisaContext | null;
   starred?: boolean; revision?: number; next_cursor?: number | null;
   loading_context?: LoadingContext;

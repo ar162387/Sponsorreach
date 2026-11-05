@@ -25,3 +25,6 @@ output/
 deploy/london-instance.json
 
 /data
+
+# Additional local exclusions
+brand/*.zip
