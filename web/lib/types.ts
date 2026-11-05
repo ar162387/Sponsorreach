@@ -35,7 +35,16 @@ export type MatchSession = {
 };
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch('/api/' + path, { ...init, headers: { 'Content-Type': 'application/json', ...init?.headers }, cache: 'no-store' });
-  const data = await response.json();
-  if (!response.ok) throw Object.assign(new Error(typeof data.detail === 'string' ? data.detail : data.error || 'We couldn’t complete this step. Please try again.'), { status: response.status });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = data.detail;
+    const validation = Array.isArray(detail) ? detail[0] : undefined;
+    const field = validation?.loc?.filter((value: unknown) => value !== 'body').join('.');
+    const clarification = detail?.normalization?.clarification;
+    const label = field?.includes('role_intents') ? 'desired role' : field?.includes('background') ? 'background' : field?.includes('skills') ? 'skills' : field?.includes('location') ? 'location preferences' : 'details';
+    const fallback = response.status >= 500 ? 'Your search service is temporarily unavailable. Your details are saved; please try again shortly.' : 'We couldn’t complete this step. Please try again.';
+    const message = typeof detail === 'string' ? detail : clarification || (validation ? validation.type === 'extra_forbidden' ? 'This page is out of date. Reload it and try your saved search again.' : `Please check your ${label}: ${validation.msg}` : data.error || fallback);
+    throw Object.assign(new Error(message), { status: response.status, code: detail?.code, field });
+  }
   return data;
 }

@@ -84,3 +84,21 @@ def test_new_account_web_submission_queues_and_delivers_results(paid):
     assert response.json()['total_count'] > 0
     assert Credits(db).summary(uid)['available'] == 9
     assert Credits(db).summary(uid)['reserved'] == 0
+
+
+def test_reported_software_background_manager_role_returns_actionable_clarification(paid):
+    client,db,uid,_,results=paid
+    Credits(db).ensure_signup(uid)
+    profile={'profile_version':1,'background':{'subject':'software enginer','specialization':''},'role_intents':[{'raw_label':'manager','confirmed':True}],'explore':False,'career_stage':'graduate','skills':[{'label':'plumber','source':'user'},{'label':'software','source':'user'},{'label':'full stack','source':'user'}],'experience_summary':'','preferred_industries':[],'certifications':[],'location':{'preferred_regions':['birmingham'],'relocate':True,'strict':False},'related_roles_enabled':False}
+    body=web_request(profile=profile)
+    rejected=client.post('/api/matches',json=body,headers=headers(uid))
+    assert rejected.status_code==422
+    assert rejected.json()['detail']['code']=='profile_needs_clarification'
+    assert 'manager' in rejected.json()['detail']['normalization']['clarification']
+    assert Credits(db).summary(uid)['available']==10
+    profile['role_intents'][0]['raw_label']='Software engineering manager'
+    accepted=client.post('/api/matches',json=web_request(profile=profile),headers=headers(uid))
+    assert accepted.status_code==202,accepted.text
+    sid=accepted.json()['session_id'];db.save_results(sid,results[:20],'synthetic',{})
+    assert client.get('/api/matches/'+sid,headers=headers(uid)).json()['status']=='ready'
+    assert Credits(db).summary(uid)['available']==9

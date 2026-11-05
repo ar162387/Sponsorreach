@@ -1,140 +1,112 @@
 'use client';
-import { useState, useEffect, useRef } from 'react';
-import { searchRequest } from '@/lib/search-request';
-import CreditAllowance from '@/components/credit-allowance';
-import {refreshCredits} from '@/components/dashboard-shell';
-import { useRouter } from 'next/navigation';
+import {useEffect,useRef,useState} from 'react';
+import {useRouter} from 'next/navigation';
 import Link from '@/components/navigation-link';
-import { ArrowLeft, ArrowRight, Check, Plus, X, Compass, Sparkles, RotateCcw } from 'lucide-react';
-import { api, type Profile, type VisaContext } from '@/lib/types';
+import {ArrowLeft,ArrowRight,Check,Plus,X,Compass,RotateCcw} from 'lucide-react';
+import CreditAllowance from './credit-allowance';
+import {refreshCredits} from './dashboard-shell';
+import {searchRequest} from '@/lib/search-request';
+import {api,type Profile,type VisaContext} from '@/lib/types';
 
-const initial: Profile = { profile_version: 1, background: { subject: '', specialization: '' }, role_intents: [{ raw_label: '', confirmed: false }], explore: false, career_stage: 'graduate', skills: [], experience_summary: '', preferred_industries: [], certifications: [], location: { preferred_regions: [], relocate: false, strict: false }, related_roles_enabled: false };
-type CareerIdea = { group_id: string; label: string; description: string; specializations: string[] };
-type SkillIdea = { id: string; label: string; occupation: string };
-type ExperienceIdea = { label: string; prompt: string };
-type OccupationIdea = { id: string; label: string; description: string; relation: string; source_url: string };
-type Assistance = { occupation_options?: OccupationIdea[]; suggestions: CareerIdea[]; skill_suggestions?: SkillIdea[]; experience_prompts?: ExperienceIdea[]; work_areas?: string[] };
-function validProfile(value: unknown): value is Profile {
- if (!value || typeof value !== 'object') return false; const p = value as Profile;
- return p.profile_version === 1 && typeof p.background?.subject === 'string' && typeof p.background.specialization === 'string' && Array.isArray(p.role_intents) && p.role_intents.every(r => typeof r.raw_label === 'string') && Array.isArray(p.skills) && p.skills.every(s => typeof s.label === 'string') && Array.isArray(p.certifications) && Array.isArray(p.preferred_industries) && typeof p.experience_summary === 'string' && Array.isArray(p.location?.preferred_regions) && ['student', 'graduate', 'experienced', 'career_changer'].includes(p.career_stage);
+const initial:Profile={profile_version:1,background:{subject:'',specialization:''},role_intents:[{raw_label:'',confirmed:false}],explore:false,career_stage:'graduate',skills:[],experience_summary:'',preferred_industries:[],certifications:[],location:{preferred_regions:[],relocate:false,strict:false},related_roles_enabled:false};
+function validProfile(value:unknown):value is Profile {
+  if(!value||typeof value!=='object')return false;
+  const p=value as Profile;
+  return p.profile_version===1&&typeof p.background?.subject==='string'&&Array.isArray(p.role_intents)&&p.role_intents.every(r=>typeof r.raw_label==='string')&&Array.isArray(p.skills)&&p.skills.every(s=>typeof s.label==='string')&&Array.isArray(p.location?.preferred_regions)&&['student','graduate','experienced','career_changer'].includes(p.career_stage);
 }
-export default function Intake({ sourceSession, newSearch = false, embedded = false, initialProfile, initialVisa, onCancel, onComplete }: { sourceSession?: string; newSearch?: boolean; embedded?: boolean; initialProfile?: Profile; initialVisa?: VisaContext | null; onCancel?: () => void; onComplete?: (id: string, profile: Profile) => void }) {
-  const [creditBalance,setCreditBalance]=useState<number|null>(null);
-  const [creditMode,setCreditMode]=useState(false), [creditConsent,setCreditConsent]=useState(false);
-  useEffect(()=>{api<{credit_mode:boolean}>('catalogue/status').then(r=>setCreditMode(r.credit_mode)).catch(()=>{});},[]);
-  const [profile, setProfile] = useState<Profile>(() => structuredClone(initialProfile || initial)), [step, setStep] = useState(0), [error, setError] = useState(''), [busy, setBusy] = useState(false);
-  const [name, setName] = useState(''), [email, setEmail] = useState(''), [skill, setSkill] = useState(''), [location, setLocation] = useState(initialProfile?.location.preferred_regions.join(', ') || ''), [options, setOptions] = useState<Profile['role_intents']>([]), [signinAvailable, setSigninAvailable] = useState(false);
-  const [occupationIdeas, setOccupationIdeas] = useState<OccupationIdea[]>([]);
-  const [industries, setIndustries] = useState(initialProfile?.preferred_industries.join(', ') || ''), [credentials, setCredentials] = useState(initialProfile?.certifications.join(', ') || ''), [visaRoute, setVisaRoute] = useState(initialVisa?.route || ''), [visaExpiry, setVisaExpiry] = useState(initialVisa?.expiry || '');
-  const [careerIdeas, setCareerIdeas] = useState<CareerIdea[]>([]), [ideasBusy, setIdeasBusy] = useState(false), [ideasNotice, setIdeasNotice] = useState('');
-  const [skillIdeas, setSkillIdeas] = useState<SkillIdea[]>([]), [experienceIdeas, setExperienceIdeas] = useState<ExperienceIdea[]>([]), [workAreas, setWorkAreas] = useState<string[]>([]);
-  const [experiencePrompt, setExperiencePrompt] = useState(''), [restoredNotice, setRestoredNotice] = useState(''), [previousCredentials, setPreviousCredentials] = useState<string[]>([]), [draftReady, setDraftReady] = useState(false);
-  const edited = useRef(false), draftKey = useRef(''), ideaRequest = useRef(0);
-  const router = useRouter();
-  function restore(p: Profile) { setProfile(p); setLocation(p.location.preferred_regions.join(', ')); setIndustries(p.preferred_industries.join(', ')); setCredentials(p.certifications.join(', ')); }
-  function touch() { edited.current = true; submissionKey.current = null; }
-  function startFresh() {
-    touch(); ++ideaRequest.current; restore(structuredClone(initial)); setStep(0); setRestoredNotice('Profile reset. Start with a new direction.');
-    setSkill(''); setOptions([]); setOccupationIdeas([]); setCareerIdeas([]); setSkillIdeas([]); setExperienceIdeas([]); setWorkAreas([]);
-    setExperiencePrompt(''); setPreviousCredentials([]); setVisaRoute(''); setVisaExpiry(''); setIdeasNotice(''); setError(''); setIdeasBusy(false);
-    try { sessionStorage.removeItem(draftKey.current); } catch {}
-  }
-  const submissionKey = useRef<string | null>(null);
-  const [signedIn, setSignedIn] = useState(embedded), [accountLoading, setAccountLoading] = useState(!embedded), [accountError, setAccountError] = useState(false);
-  async function checkAccount() {
-    setAccountLoading(true); setAccountError(false);
-    try {
-      const account = await api<{ signed_in: boolean }>('account/identity'); setSignedIn(account.signed_in);
-      if (sourceSession && !account.signed_in) { window.location.replace('/account'); return; }
-      const saved = account.signed_in ? await api<{ account_key: string; profile: Profile | null }>('account/profile' + (sourceSession ? '?session_id=' + sourceSession : '')) : { account_key: 'anonymous', profile: null };
-      draftKey.current = 'sponsorreach:onboarding:v2:' + saved.account_key + ':' + (sourceSession || 'new');
-      let draft: Profile | null = null;
-      try { const stored = JSON.parse(sessionStorage.getItem(draftKey.current) || 'null'); if (!newSearch && stored?.expires_at > Date.now() && validProfile(stored.profile)){draft=stored.profile;if(!edited.current){setStep(Math.max(0,Math.min(2,Number(stored.step)||0)));if(typeof stored.visaRoute==='string')setVisaRoute(stored.visaRoute);if(typeof stored.visaExpiry==='string')setVisaExpiry(stored.visaExpiry);}} } catch {}
-      const previous = sourceSession ? saved.profile : draft;
-      if (!edited.current && previous && validProfile(previous)) { restore(previous); setPreviousCredentials(previous.certifications); setRestoredNotice(sourceSession ? 'Editing the profile for this shortlist. Your other shortlists stay as they are.' : 'Your unfinished profile has been restored.'); }
+function cleanProfile(value:Profile):Profile {
+  const p={...structuredClone(initial),...structuredClone(value)},subject=p.background.subject,specialization=p.background.specialization;
+  return {...p,background:{subject:(specialization&&!subject.toLowerCase().includes(specialization.toLowerCase())?subject+' · '+specialization:subject).slice(0,180),specialization:''},role_intents:p.role_intents.length?p.role_intents.slice(0,3):[{raw_label:'',confirmed:false}],explore:false,experience_summary:'',certifications:[],related_roles_enabled:false};
+}
+const entries=(value:string,max:number)=>value.split(',').map(v=>v.trim()).filter(Boolean).slice(0,max);
+export default function Intake({sourceSession,newSearch=false,embedded=false,initialProfile,initialVisa,onCancel,onComplete}:{sourceSession?:string;newSearch?:boolean;embedded?:boolean;initialProfile?:Profile;initialVisa?:VisaContext|null;onCancel?:()=>void;onComplete?:(id:string,profile:Profile)=>void}) {
+  const [profile,setProfile]=useState<Profile>(()=>cleanProfile(initialProfile||initial));
+  const [step,setStep]=useState(0),[error,setError]=useState(''),[busy,setBusy]=useState(false),[creditBalance,setCreditBalance]=useState<number|null>(null);
+  const [skill,setSkill]=useState(''),[location,setLocation]=useState(initialProfile?.location.preferred_regions.join(', ')||''),[industries,setIndustries]=useState(initialProfile?.preferred_industries.join(', ')||'');
+  const [visaRoute,setVisaRoute]=useState(initialVisa?.route||''),[visaExpiry,setVisaExpiry]=useState(initialVisa?.expiry||''),[restoredNotice,setRestoredNotice]=useState(''),[draftReady,setDraftReady]=useState(false);
+  const [signedIn,setSignedIn]=useState(embedded),[accountLoading,setAccountLoading]=useState(!embedded),[accountError,setAccountError]=useState(false);
+  const edited=useRef(false),draftKey=useRef(''),submissionKey=useRef<string|null>(null),roleInput=useRef<HTMLInputElement>(null),focusRole=useRef(false);
+  const router=useRouter();
+  function touch(){edited.current=true;submissionKey.current=null;}
+  function update(patch:Partial<Profile>){touch();setProfile(p=>({...p,...patch}));setError('');}
+  function restore(p:Profile){const next=cleanProfile(p);setProfile(next);setLocation(next.location.preferred_regions.join(', '));setIndustries(next.preferred_industries.join(', '));}
+  function startFresh(){touch();restore(initial);setStep(0);setSkill('');setVisaRoute('');setVisaExpiry('');setError('');setRestoredNotice('Profile reset. Start with a new direction.');try{sessionStorage.removeItem(draftKey.current);}catch{}}
+  async function checkAccount(){
+    setAccountLoading(true);setAccountError(false);
+    try{
+      const account=embedded?{signed_in:true}:await api<{signed_in:boolean}>('account/identity');setSignedIn(account.signed_in);
+      if(!account.signed_in){setDraftReady(true);return;}
+      const saved=await api<{account_key:string;profile:Profile|null}>('account/profile'+(sourceSession?'?session_id='+sourceSession:''));
+      draftKey.current='sponsorreach:onboarding:v2:'+saved.account_key+':'+(sourceSession||'new');
+      let draft:Profile|null=null;
+      try{const stored=JSON.parse(sessionStorage.getItem(draftKey.current)||'null');if(!newSearch&&stored?.expires_at>Date.now()&&validProfile(stored.profile)){draft=stored.profile;if(!edited.current){setStep(Math.max(0,Math.min(2,Number(stored.step)||0)));if(typeof stored.visaRoute==='string')setVisaRoute(stored.visaRoute);if(typeof stored.visaExpiry==='string')setVisaExpiry(stored.visaExpiry);}}}catch{}
+      const previous=sourceSession?saved.profile:draft;
+      if(!edited.current&&previous&&validProfile(previous)){restore(previous);setRestoredNotice(sourceSession?'Editing this shortlist’s profile.':'Your unfinished profile has been restored.');}
       setDraftReady(true);
+    }catch{setAccountError(true);}finally{setAccountLoading(false);}
+  }
+  useEffect(()=>{void checkAccount();},[]);
+  useEffect(()=>{if(step===0&&error&&focusRole.current){roleInput.current?.focus();focusRole.current=false;}},[step,error]);
+  useEffect(()=>{
+    if(!draftReady||!draftKey.current)return;
+    const current={...profile,location:{...profile.location,preferred_regions:entries(location,5)},preferred_industries:entries(industries,5)};
+    try{sessionStorage.setItem(draftKey.current,JSON.stringify({expires_at:Date.now()+86400000,profile:current,step,visaRoute,visaExpiry}));}catch{}
+  },[profile,location,industries,step,visaRoute,visaExpiry,draftReady]);
+  function addSkill(value:string){const label=value.trim();if(label&&!profile.skills.some(s=>s.label.toLowerCase()===label.toLowerCase())&&profile.skills.length<20)update({skills:[...profile.skills,{label,source:'user'}]});setSkill('');}
+  function checkedProfile(){return {...profile,background:{subject:profile.background.subject.trim(),specialization:''},role_intents:profile.role_intents.map(r=>({...r,raw_label:r.raw_label.trim()})),location:{...profile.location,preferred_regions:entries(location,5)},preferred_industries:entries(industries,5)};}
+  async function next(event:React.FormEvent){
+    event.preventDefault();setError('');
+    const current=checkedProfile();
+    if(current.background.subject.length<2||current.role_intents.some(r=>r.raw_label.length<2)){setStep(0);setError('Enter your background and at least one desired role using two or more characters.');return;}
+    const broad=current.role_intents.find(r=>['analyst','engineer','consultant','manager','business','graduate'].includes(r.raw_label.toLowerCase()));
+    if(broad){focusRole.current=true;setStep(0);setError(`Which type of ${broad.raw_label.toLowerCase()} role interests you? Enter a specific role, such as software engineering manager or mechanical design engineer.`);return;}
+    if(step===0){update(current);setStep(1);return;}
+    if(step===1){
+      if(skill.trim()&&!current.skills.some(s=>s.label.toLowerCase()===skill.trim().toLowerCase())&&current.skills.length<20)current.skills=[...current.skills,{label:skill.trim(),source:'user'}];
+      setSkill('');update(current);setStep(2);return;
     }
-    catch { setAccountError(true); }
-    finally { setAccountLoading(false); }
-  }
-  useEffect(() => { void checkAccount(); }, []);
-  useEffect(() => { if (embedded) return; api<{ email_signin_available: boolean }>('catalogue/status').then(s => { setSigninAvailable(s.email_signin_available); }).catch(() => {}); }, []);
-  function update(patch: Partial<Profile>) { touch(); setProfile(p => ({ ...p, ...patch })); setError(''); submissionKey.current = null; }
-  function addSkill(value: string) { const v = value.trim(); if (v && !profile.skills.some(s => s.label.toLowerCase() === v.toLowerCase()) && profile.skills.length < 20) update({ skills: [...profile.skills, { label: v, source: 'user' }] }); setSkill(''); }
-  const suggestionText = [profile.background.subject, profile.background.specialization, ...profile.role_intents.map(r => r.raw_label), ...profile.skills.map(s => s.label)].filter(Boolean).join('; ').slice(0, 500);
-  const suggestionContext = JSON.stringify({ text: suggestionText, roles: profile.role_intents.map(r => r.raw_label.trim()).filter(r => r.length >= 2), skills: profile.skills.map(s => s.label) });
-  useEffect(() => {
-    if (!draftReady || !draftKey.current) return;
-    const current = { ...profile, location: { ...profile.location, preferred_regions: location.split(',').map(s => s.trim()).filter(Boolean).slice(0, 5) }, preferred_industries: industries.split(',').map(s => s.trim()).filter(Boolean).slice(0, 5), certifications: credentials.split(',').map(s => s.trim()).filter(Boolean).slice(0, 10) };
-    try { sessionStorage.setItem(draftKey.current, JSON.stringify({ expires_at: Date.now() + 86400000, profile: current,step,visaRoute,visaExpiry })); } catch {}
-  }, [profile, location, industries, credentials, draftReady,step,visaRoute,visaExpiry]);
-  async function discoverIdeas(signal?: AbortSignal) {
-    if (suggestionText.length < 3) return;
-    const request = ++ideaRequest.current; setIdeasBusy(true); setIdeasNotice('');
-    try {
-      const result = await api<Assistance>('profiles/suggestions', { method: 'POST', body: suggestionContext, signal });
-      if (request !== ideaRequest.current) return;
-      setOccupationIdeas(result.occupation_options || []); setCareerIdeas(result.suggestions || []); setSkillIdeas(result.skill_suggestions || []); setExperienceIdeas(result.experience_prompts || []); setWorkAreas(result.work_areas || []);
-      if (!result.suggestions?.length && !result.skill_suggestions?.length) setIdeasNotice('You can add your own niche role and skills. Suggestions aren’t required.');
-    } catch { if (!signal?.aborted && request === ideaRequest.current) setIdeasNotice('Suggestions are temporarily unavailable. You can still complete every field yourself.'); }
-    finally { if (request === ideaRequest.current) setIdeasBusy(false); }
-  }
-  useEffect(() => {
-    ++ideaRequest.current; setOccupationIdeas([]); setCareerIdeas([]); setSkillIdeas([]); setExperienceIdeas([]); setWorkAreas([]); setExperiencePrompt(''); setOptions([]); setIdeasNotice('');
-    if (suggestionText.length < 3) { setIdeasBusy(false); return; }
-    const controller = new AbortController(); const timer = setTimeout(() => void discoverIdeas(controller.signal), 650);
-    return () => { clearTimeout(timer); controller.abort(); };
-  }, [suggestionContext]);
-  function addIndustry(topic: string) { touch(); const values = industries.split(',').map(s => s.trim()).filter(Boolean); if (!values.some(s => s.toLowerCase() === topic.toLowerCase()) && values.length < 5) setIndustries([...values, topic].join(', ')); }
-  function addCredential(value: string) { touch(); const values = credentials.split(',').map(s => s.trim()).filter(Boolean); if (!values.includes(value) && values.length < 10) setCredentials([...values, value].join(', ')); }
-  function chooseIdea(idea: CareerIdea) {
-    const empty = profile.role_intents.findIndex(r => !r.raw_label.trim());
-    if (profile.role_intents.some(r => r.raw_label.toLowerCase() === idea.label.toLowerCase())) return;
-    if (empty >= 0) update({ role_intents: profile.role_intents.map((r, i) => i === empty ? { raw_label: idea.label, confirmed: false } : r), explore: false });
-    else if (profile.role_intents.length < 3) update({ role_intents: [...profile.role_intents, { raw_label: idea.label, confirmed: false }], explore: false });
-    else setIdeasNotice('Remove a role before adding another interest.');
-  }
-  function addFocus(topic: string) {
-    const current = profile.background.specialization;
-    if (current.toLowerCase().includes(topic.toLowerCase())) return;
-    update({ background: { ...profile.background, specialization: (current ? current + '; ' + topic : topic).slice(0, 180) } });
-  }
-  async function next(event: React.FormEvent) {
-    event.preventDefault(); setError('');
-    if (step === 0) {
-      setBusy(true);
-      try {
-        const result = await api<{ role_intents: Profile['role_intents']; clarification: string | null }>('profiles/normalize', { method: 'POST', body: JSON.stringify(profile) });
-        if (result.clarification && profile.explore) { setOptions(result.role_intents); setError(result.clarification); } else if (result.clarification) { update({ role_intents: result.role_intents }); setStep(1); setIdeasNotice('Your role is broad. Add the skills or tasks you want to use so we can focus on the right work.'); }
-        else { update({ role_intents: result.role_intents }); setStep(1); }
-      } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
-    } else if (step === 1) {
-      if (skill.trim()) addSkill(skill);
-      update({ location: { ...profile.location, preferred_regions: location.split(',').map(s => s.trim()).filter(Boolean).slice(0, 5) }, preferred_industries: industries.split(',').map(s => s.trim()).filter(Boolean).slice(0, 5), certifications: credentials.split(',').map(s => s.trim()).filter(Boolean).slice(0, 10) }); setStep(2);
-    } else {
-      if(creditMode&&creditBalance===0){setError('Your credits are used up. Your profile is saved. Open billing to check your subscription or get more credits.');return;}
-      if(creditMode&&!creditConsent){setError('Please acknowledge the credit rules before continuing.');return;}
-      if(creditMode&&!signedIn){setError('Sign in before starting a search. Your draft is saved.');return;}
-      if (accountLoading || accountError) { setError('Please wait for your account check, or retry it below.'); return; }
-      setBusy(true);
-      try {
-        submissionKey.current ||= crypto.randomUUID();
-        const result = await api<{ session_id: string; verification_required: boolean }>(sourceSession ? `matches/${sourceSession}/refresh` : 'matches', { method: 'POST', body: JSON.stringify(searchRequest({ profile, sourceSession, identity: signedIn ? undefined : { name, email }, visaContext: visaRoute || visaExpiry ? { route: visaRoute, expiry: visaExpiry || null } : null, creditConsent, idempotencyKey: submissionKey.current })) });
-        refreshCredits();
-        if (result.verification_required) {
-          const response = await fetch('/api/auth/otp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session_id: result.session_id }) });
-          if (!response.ok) { const problem = await response.json(); throw new Error(problem.error || 'We could not send your confirmation email. Your shortlist is saved. please try again.'); }
-        }
-        try { sessionStorage.removeItem(draftKey.current); } catch {}
-        if (onComplete) onComplete(result.session_id, profile); else router.push('/results/' + result.session_id);
-      } catch (e) { if((e as Error & {status?:number}).status===402){setCreditBalance(0);refreshCredits();}setError((e as Error).message); setBusy(false); }
+    if(creditBalance===0){setError('Your credits are used up. Your profile is saved. Open billing to get more credits.');return;}
+    if(!signedIn){setError('Sign in before starting your search.');return;}
+    if(accountLoading||accountError){setError('Retry your account check before starting the search.');return;}
+    setBusy(true);
+    try{
+      submissionKey.current||=crypto.randomUUID();
+      const result=await api<{session_id:string;verification_required:boolean}>(sourceSession?`matches/${sourceSession}/refresh`:'matches',{method:'POST',body:JSON.stringify(searchRequest({profile:current,sourceSession,visaContext:visaRoute||visaExpiry?{route:visaRoute,expiry:visaExpiry||null}:null,creditConsent:true,idempotencyKey:submissionKey.current}))});
+      refreshCredits();
+      try{sessionStorage.removeItem(draftKey.current);}catch{}
+      if(onComplete)onComplete(result.session_id,current);else router.push('/results/'+result.session_id);
+    }catch(e){
+      const problem=e as Error&{status?:number;code?:string;field?:string};
+      if(problem.status===402){setCreditBalance(0);refreshCredits();}
+      if(problem.code==='profile_needs_clarification'||problem.field?.startsWith('profile.')){focusRole.current=true;setStep(0);}
+      setError(problem.message);setBusy(false);
     }
   }
-  return <section className={embedded ? "intake-shell embedded-intake" : "intake-shell shell"}>{embedded && <header className="editor-heading"><div><span className="workspace-kicker">{sourceSession ? "REFINE SHORTLIST" : "NEW SEARCH"}</span><h2>{sourceSession ? "Fine-tune your search" : "Explore a new direction"}</h2></div><button type="button" className="button secondary small" disabled={busy} onClick={onCancel}><X size={16}/>Close</button></header>}{!embedded && <aside className="intake-aside"><Link href="/" className="back-link"><ArrowLeft size={16}/> Back to home</Link><p className="eyebrow">YOUR SKILLS. YOUR SPONSOR SHORTLIST.</p><h1>Find sponsors for<br/>the work <em>you want.</em></h1><p>Tell us what you studied, what you can do and where you want to work. We’ll use that background to identify relevant licensed sponsor companies.</p><ol className="step-list">{['Your background', 'Your skills and preferences', 'Your sponsor shortlist'].map((label, i) => <li className={i === step ? 'active' : i < step ? 'complete' : ''} key={label}><span>{i < step ? <Check size={16}/> : String(i + 1).padStart(2, '0')}</span><div>{label}<small>{['Your degree and the roles you want', 'Help us focus on relevant companies', 'Review your details and start your search'][i]}</small></div></li>)}</ol><div className="aside-note"><Compass size={22}/><span>Your next career step starts here.<br/>Research companies relevant to your skills.</span></div></aside>}
-    <div className="form-panel"><CreditAllowance onBalance={setCreditBalance}/><div className="form-top"><span>STEP {step + 1} OF 3</span><span>About 2 minutes</span></div><div className="progress-track"><span style={{ width: `${(step + 1) / 3 * 100}%` }}/></div><form onSubmit={next}>
-      {restoredNotice && <p className="notice" role="status">{restoredNotice} <button type="button" className="text-button" onClick={startFresh}>Start fresh</button></p>}{step === 0 && <><h2>What work are you looking for?</h2><p className="muted">Your background and target roles help us identify companies whose work may fit.</p><label>Degree, field of study, or professional background<input required minLength={2} maxLength={180} value={profile.background.subject} onChange={e => update({ background: { ...profile.background, subject: e.target.value } })} placeholder="e.g. Mechanical Engineering, Accounting, Nursing"/></label><label>Specialisation <span className="optional">optional</span><input maxLength={180} value={profile.background.specialization} onChange={e => update({ background: { ...profile.background, specialization: e.target.value } })} placeholder="e.g. Design and manufacturing"/></label><div className="label-row"><span>What roles interest you?</span><label className="inline-check"><input type="checkbox" checked={profile.explore} onChange={e => { update({ explore: e.target.checked, role_intents: e.target.checked ? [] : [{ raw_label: '', confirmed: false }] }); setOptions([]); }}/>Help me explore</label></div>{!profile.explore && profile.role_intents.map((role, i) => <div className="role-input" key={i}><input aria-label={`Desired role ${i + 1}`} required minLength={2} maxLength={120} placeholder="e.g. Mechanical design engineer" value={role.raw_label} onChange={e => update({ role_intents: profile.role_intents.map((r, n) => n === i ? { raw_label: e.target.value, confirmed: false } : r) })}/>{i > 0 && <button type="button" className="icon-button" aria-label="Remove role" onClick={() => update({ role_intents: profile.role_intents.filter((_, n) => n !== i) })}><X size={16}/></button>}</div>)}{!profile.explore && profile.role_intents.length < 3 && <button type="button" className="text-button" onClick={() => update({ role_intents: [...profile.role_intents, { raw_label: '', confirmed: false }] })}><Plus size={14}/> Add another role</button>}{occupationIdeas.length > 0 && <div className="career-ideas"><p className="tiny muted">Explore roles and specialisations. Choose what interests you. your original wording stays unless you change it.</p><div className="chip-list">{occupationIdeas.filter(idea => !profile.role_intents.some(r => r.raw_label.toLowerCase() === idea.label.toLowerCase())).map(idea => <button type="button" className="chip" key={idea.id} title={idea.description} onClick={() => chooseIdea({ group_id: idea.id, label: idea.label, description: idea.description, specializations: [] })}><Plus size={12}/>{idea.label}</button>)}</div></div>}{profile.explore && <p className="explore-note">We’ll suggest career directions from your background. You’ll choose which ones to include.</p>}{options.length > 0 && profile.explore && <div className="suggested-directions">{options.map(o => <button type="button" className="chip" key={o.raw_label} onClick={() => { update({ role_intents: [{ ...o, confirmed: false }], explore: false }); setOptions([]); }}>{o.raw_label}<ArrowRight size={14}/></button>)}</div>}<div className="career-ideas"><button type="button" className="text-button" disabled={ideasBusy} onClick={() => void discoverIdeas()}><Sparkles size={14}/>{ideasBusy ? 'Finding career ideas…' : 'Find career ideas from my background'}</button>{careerIdeas.length > 0 && <><p className="tiny muted">Ideas from recorded company activities and roles. Choose the interests that describe you.</p><div className="chip-list">{careerIdeas.map(idea => <button type="button" className="chip" key={idea.group_id} onClick={() => chooseIdea(idea)} title={idea.description}><Plus size={12}/>{idea.label}</button>)}</div></>}{ideasNotice && <p className="tiny muted" role="status">{ideasNotice}</p>}</div><label>Career stage<select value={profile.career_stage} onChange={e => update({ career_stage: e.target.value as Profile['career_stage'] })}><option value="student">Currently studying</option><option value="graduate">Graduate / starting my career</option><option value="experienced">Experienced professional</option><option value="career_changer">Changing career direction</option></select></label></>}
-      {step === 1 && <><h2>Which companies could fit you?</h2><p className="muted">Your skills and real work help distinguish your specialisation. Add the technical tasks, tools or services you want to use. your role provides context.</p><label>Skills you want to use <span className="optional">optional</span><div className="input-action"><input maxLength={100} value={skill} onChange={e => setSkill(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addSkill(skill); } }} placeholder="Add a technical or professional skill"/><button type="button" className="icon-button" aria-label="Add skill" onClick={() => addSkill(skill)}><Plus size={18}/></button></div></label><div className="chip-list">{profile.skills.map(s => <button type="button" className="chip selected" key={s.label} onClick={() => update({ skills: profile.skills.filter(v => v.label !== s.label) })}>{s.label}<X size={12}/></button>)}</div><p className="tiny muted">Suggested from your professional interests. Select only skills you actually have, or add your own.</p><div className="chip-list">{skillIdeas.filter(s => !profile.skills.some(v => v.label.toLowerCase() === s.label.toLowerCase())).map(s => <button type="button" className="chip" key={s.id} title={"Suggested for " + s.occupation} onClick={() => addSkill(s.label)}><Plus size={12}/>{s.label}</button>)}</div>{ideasBusy && <p className="tiny muted" role="status">Updating ideas for your profile…</p>}<label>Experience or projects <span className="optional">optional</span><textarea maxLength={500} rows={3} value={profile.experience_summary} onChange={e => update({ experience_summary: e.target.value })} placeholder={experiencePrompt || "What have you worked on? Describe a few responsibilities or projects."}/></label>{experienceIdeas.length > 0 && <div className="career-ideas"><p className="tiny muted">Pick a topic, then describe your own example.</p><div className="chip-list">{experienceIdeas.map(idea => <button type="button" className="chip" key={idea.label} onClick={() => setExperiencePrompt(idea.prompt)}>{idea.label}</button>)}</div>{experiencePrompt && <p className="tiny muted" role="status">{experiencePrompt}</p>}</div>}<label>Preferred UK location<input maxLength={100} value={location} onChange={e => { touch(); setLocation(e.target.value); }} placeholder="Anywhere in the UK, or a city / region"/></label><label className="checkbox-line"><input type="checkbox" checked={profile.location.relocate} onChange={e => update({ location: { ...profile.location, relocate: e.target.checked } })}/><span>I’m willing to relocate.</span></label><label className="checkbox-box"><input type="checkbox" checked={profile.related_roles_enabled} onChange={e => update({ related_roles_enabled: e.target.checked })}/><span>Include companies for related roles<small>See a separate section for alternative roles related to your interests.</small></span><Sparkles size={18}/></label><details className="extra-context"><summary>More professional context <span className="optional">optional</span></summary><div className="career-ideas"><button type="button" className="text-button" disabled={ideasBusy} onClick={() => void discoverIdeas()}>{ideasBusy ? 'Finding areas…' : 'Suggest areas to focus on'}</button>{careerIdeas.length > 0 && <><p className="tiny muted">Optional areas of work. Select one to add it to your specialisation. these are interests, not assumed skills.</p><div className="chip-list">{Array.from(new Set(careerIdeas.flatMap(idea => idea.specializations))).slice(0, 6).map(topic => <button type="button" className="chip" key={topic} onClick={() => addFocus(topic)}><Plus size={12}/>{topic}</button>)}</div></>}{ideasNotice && <p className="tiny muted" role="status">{ideasNotice}</p>}</div><label>Preferred industries or areas of work<input maxLength={250} value={industries} onChange={e => { touch(); setIndustries(e.target.value); }} placeholder="e.g. Renewable energy, healthcare"/></label><div className="chip-list">{workAreas.map(area => <button type="button" className="chip" key={area} onClick={() => addIndustry(area)}><Plus size={12}/>{area}</button>)}</div><label>Professional certifications or registration<input maxLength={300} value={credentials} onChange={e => { touch(); setCredentials(e.target.value); }} placeholder="Only qualifications or registrations you actually hold"/></label><p className="tiny muted">For {profile.role_intents.map(r => r.raw_label).filter(Boolean).join(" or ") || "your chosen work"}, add relevant qualifications or registration you hold. We won’t infer credentials from your degree.</p>{previousCredentials.length > 0 && <div className="chip-list">{previousCredentials.map(value => <button type="button" className="chip" key={value} onClick={() => addCredential(value)} title="Previously provided by you"><Plus size={12}/>{value}</button>)}</div>}<p className="tiny muted">Separate entries with commas. These details refine your preferences. they don’t establish a job requirement.</p></details></>}
-      {step === 2 && <><h2>Your sponsor search starts here.</h2><p className="muted">Check your background and preferences, then find relevant sponsor companies.</p><div className="profile-summary"><span className="eyebrow">YOUR SPONSOR SEARCH PROFILE</span><h3>{profile.role_intents.map(r => r.raw_label).join(' · ')}</h3><p>{profile.background.subject}{profile.background.specialization ? ' · ' + profile.background.specialization : ''}</p><div className="chip-list">{profile.skills.map(s => <span className="chip" key={s.label}>{s.label}</span>)}</div><small>{profile.location.preferred_regions.join(', ') || 'Anywhere in the UK'}{profile.location.relocate ? ' · Open to relocating' : ''}</small></div>{accountLoading ? <p className="notice" role="status">Checking your account…</p> : accountError ? <p className="notice" role="alert">We couldn’t check your account. <button type="button" className="text-button" onClick={() => void checkAccount()}>Retry</button></p> : signedIn ? <p className="notice">You’re signed in. This shortlist will be saved to your account.</p> : <><label>Your name<input required maxLength={100} autoComplete="name" value={name} onChange={e => { setName(e.target.value); submissionKey.current = null; }} placeholder="Your name"/></label><label>Email address<input required type="email" maxLength={254} autoComplete="email" value={email} onChange={e => { setEmail(e.target.value); submissionKey.current = null; }} placeholder="you@example.com"/></label></>}<details className="extra-context"><summary>Visa timing <span className="optional">optional</span></summary><label>Current route<select value={visaRoute} onChange={e => { setVisaRoute(e.target.value); submissionKey.current = null; }}><option value="">Prefer not to say</option><option>Graduate</option><option>Student</option><option>Skilled Worker</option><option>Other</option></select></label><label>Your visa expiry date<input type="date" value={visaExpiry} onChange={e => { setVisaExpiry(e.target.value); submissionKey.current = null; }}/></label><p className="tiny muted">Visa timing stays separate from professional matching and does not change your company recommendations. We do not assess immigration eligibility.</p></details>{!signedIn && !accountLoading && !accountError && <p className="tiny muted">Your name and email connect this sponsor shortlist to you. {signinAvailable ? 'We’ll email you a one-time code to confirm your email and open your shortlist.' : 'Your sponsor shortlist will be saved in this browser.'}</p>}</>}
-      {step===2&&creditMode&&<label className="checkbox-line"><input type="checkbox" checked={creditConsent} onChange={e=>setCreditConsent(e.target.checked)}/><span>I understand each new or revised search costs 1 credit when nonempty results arrive. Empty results, failures and batches with more than half the companies already unlocked on my account are free.</span></label>}{error && <p className="error" role="alert">{error}</p>}<div className="form-actions"><button type="button" className="back-button reset-profile" disabled={busy || accountLoading} onClick={startFresh}><RotateCcw size={15}/>Reset profile</button>{step > 0 && <button type="button" className="back-button" disabled={busy} onClick={() => { setStep(step - 1); setError(''); }}><ArrowLeft size={16}/> Back</button>}<button className="button" type="submit" disabled={busy || (step === 2 && (accountLoading || accountError || (creditMode && creditBalance===0)))}>{busy ? 'Working…' : step === 2 ? sourceSession ? 'Update this shortlist' : 'Find my sponsors' : 'Continue'}<ArrowRight size={18}/></button></div>{step === 2 && <p className="terms-note">By continuing, you agree to the <Link href="/terms">Terms</Link> and <Link href="/privacy">Privacy Notice</Link>.</p>}
-    </form></div></section>;
+  return <section className={embedded?'intake-shell embedded-intake':'intake-shell shell'}>
+    {embedded?<header className="editor-heading"><div><span className="workspace-kicker">{sourceSession?'REFINE SHORTLIST':'NEW SEARCH'}</span><h2>{sourceSession?'Fine-tune your search':'Start a new search'}</h2></div><button type="button" className="button secondary small" disabled={busy} onClick={onCancel}><X size={16}/>Close</button></header>:<aside className="intake-aside"><Link href="/" className="back-link"><ArrowLeft size={16}/>Back to home</Link><p className="eyebrow">YOUR SKILLS. YOUR SPONSOR SHORTLIST.</p><h1>Find sponsors for<br/>the work <em>you want.</em></h1><p>Tell us your background and the work you want to do.</p><ol className="step-list">{['Your background','Your preferences','Review and search'].map((label,i)=><li key={label} className={i===step?'active':i<step?'complete':''}><span>{i<step?<Check size={16}/>:String(i+1).padStart(2,'0')}</span><div>{label}</div></li>)}</ol><div className="aside-note"><Compass size={22}/><span>Research companies relevant to your skills.</span></div></aside>}
+    <div className="form-panel"><CreditAllowance onBalance={setCreditBalance}/><div className="form-top"><span>STEP {step+1} OF 3</span><span>About 2 minutes</span></div><div className="progress-track"><span style={{width:`${(step+1)/3*100}%`}}/></div>
+      <form onSubmit={next}>
+        {restoredNotice&&<p className="notice" role="status">{restoredNotice} <button type="button" className="text-button" onClick={startFresh}>Start fresh</button></p>}
+        {step===0&&<><h2>What work are you looking for?</h2><p className="muted">Your background and target roles help us identify relevant companies.</p>
+          <label>Degree, field of study, or professional background<input required minLength={2} maxLength={180} value={profile.background.subject} onChange={e=>update({background:{subject:e.target.value,specialization:''}})} placeholder="e.g. Mechanical Engineering, Accounting, Nursing"/></label>
+          <div className="label-row"><span>What roles interest you?</span></div>{profile.role_intents.map((role,i)=><div className="role-input" key={i}><input ref={i===0?roleInput:undefined} aria-label={`Desired role ${i+1}`} required minLength={2} maxLength={120} value={role.raw_label} onChange={e=>update({role_intents:profile.role_intents.map((r,n)=>n===i?{raw_label:e.target.value,confirmed:false}:r)})} placeholder="e.g. Mechanical design engineer"/>{i>0&&<button type="button" className="icon-button" aria-label="Remove role" onClick={()=>update({role_intents:profile.role_intents.filter((_,n)=>n!==i)})}><X size={16}/></button>}</div>)}
+          {profile.role_intents.length<3&&<button type="button" className="text-button" onClick={()=>update({role_intents:[...profile.role_intents,{raw_label:'',confirmed:false}]})}><Plus size={14}/>Add another role</button>}
+          <label>Career stage<select value={profile.career_stage} onChange={e=>update({career_stage:e.target.value as Profile['career_stage']})}><option value="student">Currently studying</option><option value="graduate">Graduate / starting my career</option><option value="experienced">Experienced professional</option><option value="career_changer">Changing career direction</option></select></label>
+        </>}
+        {step===1&&<><h2>Which companies could fit you?</h2><p className="muted">Add the skills and preferences you want us to consider.</p>
+          <label>Skills you want to use <span className="optional">optional</span><div className="input-action"><input maxLength={100} value={skill} onChange={e=>setSkill(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();addSkill(skill);}}} placeholder="Add a technical or professional skill"/><button type="button" className="icon-button" aria-label="Add skill" onClick={()=>addSkill(skill)}><Plus size={18}/></button></div></label>
+          <div className="chip-list">{profile.skills.map(s=><button type="button" className="chip selected" key={s.label} onClick={()=>update({skills:profile.skills.filter(v=>v.label!==s.label)})}>{s.label}<X size={12}/></button>)}</div>
+          <label>Preferred UK location<input maxLength={100} value={location} onChange={e=>{touch();setLocation(e.target.value);}} placeholder="Anywhere in the UK, or a city / region"/></label>
+          <label className="checkbox-line"><input type="checkbox" checked={profile.location.relocate} onChange={e=>update({location:{...profile.location,relocate:e.target.checked}})}/><span>I’m willing to relocate.</span></label>
+          <label>Preferred industries or areas of work<input maxLength={250} value={industries} onChange={e=>{touch();setIndustries(e.target.value);}} placeholder="e.g. Renewable energy, healthcare"/></label>
+          <section aria-labelledby="visa-timing-title"><h3 id="visa-timing-title">Visa timing</h3><label>Current route<select value={visaRoute} onChange={e=>{touch();setVisaRoute(e.target.value);}}><option value="">Prefer not to say</option><option>Graduate</option><option>Student</option><option>Skilled Worker</option><option>Other</option></select></label><label>Your visa expiry date<input type="date" value={visaExpiry} onChange={e=>{touch();setVisaExpiry(e.target.value);}}/></label><p className="tiny muted">Visa timing does not change your company recommendations. You can leave these fields blank.</p></section>
+        </>}
+        {step===2&&<><h2>Your sponsor search starts here.</h2><p className="muted">Review your details, then find relevant sponsor companies.</p><div className="profile-summary"><span className="eyebrow">YOUR SPONSOR SEARCH PROFILE</span><h3>{profile.role_intents.map(r=>r.raw_label).join(' · ')}</h3><p>{profile.background.subject}</p><div className="chip-list">{profile.skills.map(s=><span className="chip" key={s.label}>{s.label}</span>)}</div><small>{profile.location.preferred_regions.join(', ')||'Anywhere in the UK'}{profile.location.relocate?' · Open to relocating':''}</small>{profile.preferred_industries.length>0&&<p>{profile.preferred_industries.join(', ')}</p>}</div>
+          {accountLoading?<p role="status">Checking your account…</p>:accountError?<p className="error" role="alert">We couldn’t check your account. <button type="button" className="text-button" onClick={()=>void checkAccount()}>Retry</button></p>:!signedIn?<p className="error"><Link href="/account">Sign in to start your search</Link></p>:null}
+        </>}
+        {error&&<p className="error" role="alert">{error}</p>}
+        <div className="form-actions"><button type="button" className="back-button reset-profile" disabled={busy||accountLoading} onClick={startFresh}><RotateCcw size={15}/>Reset profile</button>{step>0&&<button type="button" className="back-button" disabled={busy} onClick={()=>{setStep(step-1);setError('');}}><ArrowLeft size={16}/>Back</button>}<button className="button" type="submit" disabled={busy||(step===2&&(accountLoading||accountError||creditBalance===0||!signedIn))}>{busy?'Working…':step===2?sourceSession?'Update this shortlist':'Find my sponsors':'Continue'}<ArrowRight size={18}/></button></div>
+      </form>
+    </div>
+  </section>;
 }

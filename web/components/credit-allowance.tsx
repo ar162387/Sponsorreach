@@ -13,6 +13,6 @@ export default function CreditAllowance({onBalance}:{onBalance?:(balance:number)
     void load();window.addEventListener(CREDITS_CHANGED,load);window.addEventListener('focus',load);
     return()=>{active=false;controller.abort();window.removeEventListener(CREDITS_CHANGED,load);window.removeEventListener('focus',load);};
   },[onBalance]);
-  if(!state?.credit_mode)return null;
-  return <p className="notice">{state.available} credits available. {state.available===0?'Your credits are used up. Your saved research is still available. Open billing to check your subscription or get more credits.':'One credit opens up to 20 companies. Failed, empty or mostly repeated batches use no credits.'} <Link href="/account/billing">Manage credits</Link></p>;
+  if(!state?.credit_mode||state.available>0)return null;
+  return <p className="error" role="alert">Your credits are used up. Your profile and saved research are safe. <Link href="/account/billing">Get more credits</Link></p>;
 }
