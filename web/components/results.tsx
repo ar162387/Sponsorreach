@@ -1,5 +1,6 @@
 'use client';
 import EmailSignin from './email-signin';
+import { SocialButtons, type SocialConfig } from './social-signin';
 import {refreshCredits} from './dashboard-shell';
 import { useState, useEffect, useRef } from 'react';
 import Link from '@/components/navigation-link';
@@ -10,8 +11,8 @@ import { ResultsSkeleton } from './skeletons';
 import PersonalizedLoader from '@/components/personalized-loader';
 
 export type ShortlistView = { session: MatchSession; cards: EmployerCard[]; cursor: number | null };
-export default function Results({ id, embedded = false, title, cache, externalStarred, onSessionChange, onBookmarkChange, onRefine }: {
-  id: string; embedded?: boolean; title?: string; cache?: Map<string, ShortlistView>; externalStarred?: boolean;
+export default function Results({ id, embedded = false, title, cache, externalStarred, onSessionChange, onBookmarkChange, onRefine, social, wrongSignInEmail }: {
+  id: string; social?: SocialConfig; wrongSignInEmail?: boolean; embedded?: boolean; title?: string; cache?: Map<string, ShortlistView>; externalStarred?: boolean;
   onRefine?: (session: MatchSession) => void;
   onSessionChange?: (session: MatchSession) => void;
   onBookmarkChange?: (employer: EmployerCard, saved: boolean) => void;
@@ -105,7 +106,7 @@ export default function Results({ id, embedded = false, title, cache, externalSt
   const ready = session?.status === 'ready';
   const nextBatchCost=session?.next_batch_cost??1;
   if (!session) return error ? <div className="saved-results-error" role="alert"><h2>Let’s reconnect your shortlist.</h2><p>{error}</p><button className="button secondary small" onClick={() => { setError(''); setRefreshEpoch(value => value + 1); }}>Try loading again</button></div> : <ResultsSkeleton embedded={embedded}/>;
-  if (session?.verification_required) return <section className="loader-page shell"><Mail size={48}/><p className="eyebrow">ONE LAST STEP</p><h1>Confirm your <em>email.</em></h1><p className="muted">Your shortlist is saved. Enter the code we emailed you to open your research.</p><EmailSignin key={id} sessionId={id} initialSent/><Link className="text-button" href="/account">Use another account</Link></section>;
+  if (session?.verification_required) return <section className="loader-page shell"><Mail size={48}/><p className="eyebrow">ONE LAST STEP</p><h1>Confirm your <em>email.</em></h1><p className="muted">Your shortlist is saved. Enter the code we emailed you to open your research.</p>{wrongSignInEmail && <p className="notice" role="status">That sign-in uses a different email from this shortlist. Try the original email or enter the code below.</p>}<EmailSignin key={id} sessionId={id} initialSent/>{social && <SocialButtons {...social} shortlist={id}/>}<Link className="text-button" href="/account">Use another account</Link></section>;
   if (session?.status === 'failed') return <section className="loader-page shell"><Compass size={38}/><h1>Let’s try your shortlist again.</h1><p className="muted">Your profile and saved choices are safe. Failed searches use no credits. Retry the search or refine this shortlist.</p><button className="button" disabled={busy} onClick={refresh}><RefreshCw size={17}/>Retry this shortlist</button><>{onRefine ? <button className="text-button" onClick={() => onRefine(session)}>Refine this shortlist</button> : <Link className="text-link" href={"/match?shortlist=" + id}>Refine this shortlist</Link>}</>{error && <p className="error" role="alert">{error}</p>}</section>;
   if (!ready && !['queued', 'processing'].includes(session.status)) return <div className="saved-results-error"><h2>Your profile needs a little more detail.</h2><>{onRefine ? <button className="text-button" onClick={() => onRefine(session)}>Refine this shortlist</button> : <Link href={'/match?shortlist=' + id}>Refine this shortlist</Link>}</></div>;
   if (!ready) return <PersonalizedLoader stage={session?.stage} context={session?.loading_context} error={error}/>;

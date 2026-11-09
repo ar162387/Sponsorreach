@@ -117,6 +117,9 @@ def main():
     sub.add_parser("status")
     sub.add_parser('embedding-check')
     sub.add_parser("purge-expired")
+    for command in ("restore-member", "erase-member", "erase-google-data", "erase-facebook-data"):
+        p=sub.add_parser(command)
+        p.add_argument("identifier", help="Account UUID or provider subject for provider-data erasure")
     args=parser.parse_args()
     if args.command=='audit-csv':
         from .catalogue_cleanup import inspect_csv
@@ -143,6 +146,20 @@ def main():
         result=None
         if args.command=="migrate":
             db.migrate();result={"migrated":True}
+        elif args.command in ("restore-member", "erase-member", "erase-google-data", "erase-facebook-data"):
+            from .member_access import erase_provider_data, request_closure, restore_member, staff_account
+            if args.command.startswith("erase-") and args.command.endswith("-data"):
+                provider=args.command.split("-")[1]
+                result={"removed":erase_provider_data(db, provider, args.identifier)}
+            else:
+                uid=str(UUID(args.identifier))
+                if args.command=="restore-member":
+                    result={"restored":restore_member(db, uid)}
+                else:
+                    if staff_account(uid, ""):
+                        raise SystemExit("Manage staff accounts separately")
+                    result=request_closure(db, uid, "", immediate=True)
+                    result={"queued":bool(result)}
         elif args.command=='cleanup-catalogue':
             from .catalogue_cleanup import cleanup_catalogue
             result=cleanup_catalogue(db,args.path,args.namespace,args.output)

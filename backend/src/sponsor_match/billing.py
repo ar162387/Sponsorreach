@@ -83,7 +83,8 @@ class Credits:
 
     def ensure_signup(self,user_id):
         with self.db.transaction() as c:
-            c.execute('select sm_private.grant_signup_credits(%s)',(user_id,))
+            c.execute("""select sm_private.grant_signup_credits(%s) where not exists (
+                select 1 from sm_private.member_closures where user_id=%s and status<>'restored')""",(user_id,user_id))
 
     def reserve(self,user_id,session_id):
         with self.db.transaction() as c:
@@ -160,6 +161,7 @@ class Credits:
         if environment not in ('test','live') or ends_at<=starts_at or allowance<1 or amount_minor<0: raise ValueError('Invalid paid period')
         with self.db.transaction() as c:
             lock_account(c,user_id)
+            closed=c.execute("select 1 from sm_private.member_closures where user_id=%s and status='purged'",(user_id,)).fetchone()
             sub=c.execute('select * from sm_private.billing_subscriptions where id=%s for update',(subscription_id,)).fetchone()
             if sub and (str(sub['user_id'])!=str(user_id) or sub['environment']!=environment or sub['product_id']!=product_id): raise ValueError('Subscription correlation mismatch')
             c.execute("insert into sm_private.billing_subscriptions(id,user_id,environment,status,product_id,period_end) values(%s,%s,%s,'active',%s,%s) on conflict(id) do update set period_end=greatest(sm_private.billing_subscriptions.period_end,excluded.period_end),updated_at=now()",(subscription_id,user_id,environment,product_id,ends_at))
@@ -175,12 +177,12 @@ class Credits:
             if fresh:
                 pid=str(uuid4())
                 c.execute('insert into sm_private.billing_periods(id,user_id,subscription_id,starts_at,ends_at,allowance,plan_snapshot) values(%s,%s,%s,%s,%s,%s,%s)',(pid,user_id,subscription_id,starts_at,ends_at,allowance,Jsonb(plan_snapshot or {})))
-                entry(c,user_id,pid,allowance,'grant','grant:'+subscription_id+':'+ends_at.isoformat())
+                if not closed:entry(c,user_id,pid,allowance,'grant','grant:'+subscription_id+':'+ends_at.isoformat())
             else: pid=p['id']
             c.execute("insert into sm_private.billing_payments(id,period_id,invoice_id,amount_minor,currency,status,paid_at,provider_session,metadata) values(%s,%s,%s,%s,%s,%s,%s,%s,%s)",(payment_id,pid,invoice_id,amount_minor,currency,payment_state,paid_at or datetime.now(UTC),provider_session,Jsonb(metadata or {})))
             if payment_state in ('refunded','charged_back'):self.revoke_in(c,pid)
             elif payment_state=='disputed':c.execute('update sm_private.billing_periods set suspended=true where id=%s',(pid,))
-            return fresh
+            return fresh and not closed
 
     def summary(self,user_id):
         with self.db.transaction() as c:

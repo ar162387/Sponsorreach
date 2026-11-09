@@ -2,13 +2,13 @@
 import {useEffect,useRef,useState} from 'react';
 import {usePathname} from 'next/navigation';
 import Link from 'next/link';
-import {LayoutDashboard,Search,Layers,Bookmark,CreditCard,LifeBuoy,Users,Receipt,RotateCcw,Coins,RefreshCw,Menu,X,PanelLeftClose,PanelLeftOpen,LogOut,ArrowUpRight} from 'lucide-react';
+import {LayoutDashboard,Search,Layers,Bookmark,CreditCard,LifeBuoy,Settings,Users,Receipt,RotateCcw,Coins,RefreshCw,Menu,X,PanelLeftClose,PanelLeftOpen,LogOut,ArrowUpRight} from 'lucide-react';
 import Brand from './brand';
 import {api} from '@/lib/types';
 export const CREDITS_CHANGED='sponsorreach:credits-changed';
 export function refreshCredits(){window.dispatchEvent(new Event(CREDITS_CHANGED));}
 type Balance={available:number;signup_credits:number;reserved:number;subscription?:{status:string}|null};
-const memberLinks=[['/account','Overview',LayoutDashboard],['/account/search','New search',Search],['/account/shortlists','Shortlists',Layers],['/account/saved','Saved companies',Bookmark],['/account/billing','Credits & billing',CreditCard],['/account/support','Support',LifeBuoy]] as const;
+const memberLinks=[['/account','Overview',LayoutDashboard],['/account/search','New search',Search],['/account/shortlists','Shortlists',Layers],['/account/saved','Saved companies',Bookmark],['/account/billing','Credits & billing',CreditCard],['/account/support','Support',LifeBuoy],['/account/settings','Settings',Settings]] as const;
 const adminLinks=[['/admin','Overview',LayoutDashboard],['/admin/members','Members',Users],['/admin/payments','Payments',Receipt],['/admin/refunds','Refunds',RotateCcw],['/admin/credits','Credits & usage',Coins],['/admin/reconciliation','Reconciliation',RefreshCw],['/admin/support','Support',LifeBuoy]] as const;
 export default function DashboardShell({children,admin=false,email,isAdmin=false}:{children:React.ReactNode;admin?:boolean;email:string;isAdmin?:boolean}){
  const [narrow,setNarrow]=useState(false);

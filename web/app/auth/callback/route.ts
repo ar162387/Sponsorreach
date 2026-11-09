@@ -9,6 +9,10 @@ export async function GET(request: Request) {
     const { error } = await client.auth.exchangeCodeForSession(code);
     if (!error) {
       const associated = await fetch(apiBase() + '/api/account/associate', { method: 'POST', headers: await gatewayHeaders(), cache: 'no-store' });
+      if (associated.status === 403) {
+        await client.auth.signOut({ scope: 'local' });
+        return NextResponse.redirect(new URL('/account?signin=closed', publicOrigin(request)));
+      }
       if (!associated.ok) return NextResponse.redirect(new URL('/account?signin=association_failed', publicOrigin(request)));
       const next = url.searchParams.get('next') || '/account';
       return NextResponse.redirect(new URL(/^\/results\/[a-f0-9-]{36}$/.test(next) || next === '/account?new=1' ? next : '/account', publicOrigin(request)));

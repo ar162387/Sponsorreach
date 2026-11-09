@@ -2,10 +2,10 @@ import 'server-only';
 import {AsyncLocalStorage} from 'node:async_hooks';
 const reconciliationSignal=new AsyncLocalStorage<AbortSignal>();
 import {AgentaOS,type Checkout,type Subscription} from '@agentaos/pay';
-import {apiBase,supabase,isAdministrator} from './server';
+import {apiBase,verifiedUser,isAdministrator} from './server';
 export type Plan={active:boolean;slug:string;name:string;product_id:string;amount_minor:number;currency:string;credits:number;interval:string;environment:string};
 type Intent={id:string;user_id:string;provider_session:string|null;checkout_url:string|null;status:string;plan_snapshot:Plan;environment:string};
-type StoredSubscription={id:string;user_id:string;product_id:string;status:string;environment:string};
+type StoredSubscription={id:string;user_id:string;product_id:string;status:string;environment:string;cancel_at_period_end?:boolean};
 type Payment={id:string;invoice_id:string;status:string;paid_at:string;amount_minor:number;currency:string;subscription_id:string;user_id:string};
 export type Context={checkouts:Intent[];subscriptions:StoredSubscription[];payments:Payment[];refunds:{id:string;payment_id:string;status:string;user_id?:string}[]};
 export class BillingError extends Error{constructor(message:string,public status=503){super(message);}}
@@ -18,7 +18,7 @@ export async function internal<T>(action:string,body:Record<string,unknown>={}):
  const r=await fetch(apiBase()+'/api/internal/billing/'+action,{method:'POST',headers:{'Content-Type':'application/json','X-API-Secret':process.env.SPONSORMATCH_API_SECRET||'','X-Billing-Secret':secret},body:JSON.stringify({...body,environment:environment()}),cache:'no-store',signal:AbortSignal.timeout(20000)});
  const result=await r.json();if(!r.ok)throw new BillingError(typeof result.detail==='string'?result.detail:'Billing request failed',r.status);return result;
 }
-export async function account(staff=false){const client=await supabase();const user=client?(await client.auth.getUser()).data.user:null;if(!user||!user.email_confirmed_at)throw new BillingError('Sign in to your verified account',401);
+export async function account(staff=false){const user=await verifiedUser();if(!user||!user.email_confirmed_at)throw new BillingError('Sign in to your verified account',401);
  if(staff&&!isAdministrator(user))throw new BillingError('Administrator access required',403);return user;}
 export async function plans(includeArchived=false){const rows=(await internal<{plans:Plan[]}>('plans')).plans;return includeArchived?rows:rows.filter(p=>p.active&&p.currency==='USD'&&p.amount_minor===2499&&p.interval==='month'&&p.credits===800).slice(0,1);}
 export async function context(uid?:string){return internal<Context>('context',uid?{user_id:uid}:{});}
@@ -78,7 +78,7 @@ export async function confirmSession(sessionId:string,uid?:string,knownSale?:Sal
 }
 export async function syncAccount(uid:string){let pending=false;const ctx=await context(uid);for(const i of ctx.checkouts.filter(i=>i.status==='pending'&&i.provider_session)){try{const state=await confirmSession(i.provider_session!,uid);if(state.status==='open')pending=true;}catch(e){if(e instanceof BillingError&&e.status===409)pending=true;else throw e;}}
  for(const sub of (ctx.subscriptions.length?await subscriptions():[]).filter(s=>ctx.subscriptions.some(old=>old.id===s.id)))await internal('subscription',{subscription:sub});return {...await context(uid),pending};}
-export async function cancel(uid:string){const ctx=await context(uid);const active=ctx.subscriptions.filter(s=>!['canceled','incomplete_expired'].includes(s.status));for(const s of active){await provider().subscriptions.cancel(s.id,{atPeriodEnd:true});await internal('subscription',{subscription:{id:s.id,status:s.status,cancelAtPeriodEnd:true}});}return {scheduled:true};}
+export async function cancel(uid:string, options?:{skipScheduled?:boolean}){const ctx=await context(uid);const active=ctx.subscriptions.filter(s=>!['canceled','incomplete_expired'].includes(s.status)&&(!options?.skipScheduled||!s.cancel_at_period_end));for(const s of active){const result=await provider().subscriptions.cancel(s.id,{atPeriodEnd:true});if(options?.skipScheduled&&!result?.cancelAtPeriodEnd&&result?.status!=='canceled')throw new BillingError('Subscription cancellation is pending');await internal('subscription',{subscription:{id:s.id,status:result?.status||s.status,cancelAtPeriodEnd:result?.cancelAtPeriodEnd??true}});}return {scheduled:true};}
 export async function requestRefund(uid:string,paymentId:string,reason:string,staff=false){
  const r=await internal<{request:{id:string;status:string};payment:Payment}>('refund-prepare',{user_id:uid,payment_id:paymentId,reason,staff});
  return submitSavedRefund(r.request,r.payment.user_id,paymentId);

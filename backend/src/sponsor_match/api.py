@@ -43,6 +43,9 @@ def create_app(settings=None,db=None):
             raise HTTPException(401,"A browser session is required")
         return value
 
+    from .member_access import closure_blocks, closure_for, install_member_access, member_auth_method_allowed
+    install_member_access(app, db, settings)
+
     def user(request,required=False):
         # Verify once per HTTP request, never across requests or users.
         if hasattr(request.state,'verified_account'):
@@ -62,6 +65,10 @@ def create_app(settings=None,db=None):
             if not value.get("email_confirmed_at"):
                 raise HTTPException(401,"Verify your email first")
             UUID(value["id"])
+            if not member_auth_method_allowed(value["id"], bearer):
+                raise HTTPException(401, "Sign in with an email code or a connected provider.")
+            if closure_blocks(db, closure_for(db, value["id"]), bearer):
+                raise HTTPException(403, "This account is unavailable. See the data deletion page for help.")
             Credits(db).ensure_signup(value['id'])
             request.state.verified_account=value
             return value
