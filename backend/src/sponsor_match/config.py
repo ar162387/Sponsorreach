@@ -34,7 +34,6 @@ class Settings:
     supabase_url: str = ""
     supabase_publishable_key: str = ""
     environment: str = "development"
-    demo_price_gbp: int = 19
     session_days: int = 30
     max_attempts: int = 3
     manual_catalogue_updates: bool = False
@@ -59,7 +58,6 @@ class Settings:
             supabase_url=os.getenv("SUPABASE_URL", ""),
             supabase_publishable_key=os.getenv("SUPABASE_PUBLISHABLE_KEY", ""),
             environment=os.getenv("SPONSORMATCH_ENV", "development"),
-            demo_price_gbp=int(os.getenv("DEMO_ACCESS_PRICE_GBP", "19")),
             manual_catalogue_updates=os.getenv('SPONSORREACH_MANUAL_UPDATES','false').lower()=='true',
         )
         if value.environment == "production" and len(value.api_secret) < 32:

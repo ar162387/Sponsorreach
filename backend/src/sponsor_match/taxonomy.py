@@ -80,6 +80,52 @@ ACTIVITY_SYNONYMS = {
 }
 
 
+# Use catalogue IDs when present. The business family is a local rule, not an SOC group.
+ARCHITECT_FAMILIES = {
+    'building': (
+        ('bootstrap:architecture', 'uk-soc-2020:245101'),
+        'Building architect',
+        ('building architect', 'residential architect', 'commercial architect', 'project architect',
+         'architectural assistant', 'architectural designer', 'conservation architect'),
+        ('architectural design', 'architectural practice', 'architectural services', 'building design'),
+        ('architectural design', 'urban design', 'revit', 'bim', 'planning applications'),
+    ),
+    'technology': (
+        ('uk-soc-2020:213306', 'uk-soc-2020:213304'),
+        'Software/cloud architect',
+        ('software architect', 'cloud architect', 'solution architect', 'solutions architect',
+         'it architect', 'technical architect', 'systems architect', 'data architect',
+         'integration architect', 'mdm architect', 'outsystems architect', 'security architect'),
+        ('cloud architecture', 'software architecture', 'systems architecture', 'solution architecture'),
+        ('software', 'computer science', 'cloud', 'aws', 'azure', 'gcp', 'kubernetes', 'outsystems'),
+    ),
+    'business': (
+        (),
+        'Business/enterprise architect',
+        ('business architect', 'enterprise architect', 'decision architect'),
+        ('business architecture', 'enterprise architecture', 'decision architecture'),
+        ('business architecture', 'enterprise architecture', 'togaf', 'operating model', 'business strategy'),
+    ),
+}
+
+
+def architect_domains(text, *, context=False):
+    return {
+        family for family, (_, label, roles, activities, hints) in ARCHITECT_FAMILIES.items()
+        if any(contains(text, phrase) for phrase in ((label, *hints) if context else (label, *roles, *activities)))
+    }
+
+
+def architect_role(label):
+    value = re.sub(r'^(senior|junior|graduate|trainee|entry level|lead|principal) ', '', key(label))
+    if value in {'architect', 'architects'}:
+        return 'ambiguous'
+    for family, (_, canonical, roles, _, _) in ARCHITECT_FAMILIES.items():
+        if value in {key(term) for term in (canonical, *roles)}:
+            return family
+    return None
+
+
 class Taxonomy:
     def __init__(self, concepts=None):
         self.concepts = concepts or [Concept("bootstrap:" + s[0], s[1], s[2], list(dict.fromkeys(s[3]+ACTIVITY_SYNONYMS.get(s[0],[]))), s[4], s[5], ["bootstrap:" + x for x in s[6]]) for s in SEEDS]
@@ -125,18 +171,53 @@ class Taxonomy:
                 found.update(lookup.get(" ".join(tokens[start:start+length]),()))
         return sorted(found)
 
+    def architect_concept(self, family):
+        ids, label, aliases, activities, _ = ARCHITECT_FAMILIES[family]
+        existing = next((self.by_id[value] for value in ids if value in self.by_id), None)
+        return Concept(existing.id if existing else 'local:sponsorreach-architect-' + family,
+                       label, list(aliases), list(activities), [], [],
+                       existing.related if existing else [], metadata={'architect_family': family})
+
+    def intent_target(self, role, profile):
+        family = architect_role(role.raw_label)
+        if family is None:
+            return self.resolve(role.raw_label)
+        if family != 'ambiguous':
+            return self.architect_concept(family)
+        if role.confirmed:
+            for candidate in ARCHITECT_FAMILIES:
+                target = self.architect_concept(candidate)
+                if role.concept_id == target.id:
+                    return target
+        backgrounds = [profile.background.subject, profile.background.specialization]
+        fields = backgrounds + [skill.label for skill in profile.skills]
+        families = set().union(*(architect_domains(field, context=True) for field in fields))
+        # A standalone degree subject is building context. A qualified phrase
+        # such as "cloud architecture" must retain its domain.
+        if any(re.match(r'^architecture(?:$| and )', key(field)) for field in backgrounds):
+            families.add('building')
+        return self.architect_concept(next(iter(families))) if len(families) == 1 else None
+
     def normalize(self, profile: Profile):
-        suggestions, clarification = [], None
+        suggestions, clarification, choices = [], None, []
         if profile.explore:
             background = profile.background.subject + " " + profile.background.specialization
             suggestions = [RoleIntent(raw_label=c.label, concept_id=c.id) for c in self.concepts if any(contains(background, b) for b in c.backgrounds)][:3]
             clarification = "Choose the career paths you want to explore." if suggestions else "What kind of work would you like to do? Give a role or describe its responsibilities."
         else:
-            for role in profile.role_intents:
-                concept = self.resolve(role.raw_label)
+            for index, role in enumerate(profile.role_intents):
+                concept = self.intent_target(role, profile)
+                if architect_role(role.raw_label) == 'ambiguous' and not concept:
+                    clarification = 'Which type of architecture work do you want to do?'
+                    choices.append({'index': index, 'options': [
+                        {'concept_id': target.id, 'label': target.label}
+                        for target in (self.architect_concept(family) for family in ARCHITECT_FAMILIES)
+                    ]})
+                elif key(role.raw_label) in {"analyst", "engineer", "consultant", "manager", "business", "graduate"}:
+                    clarification = f"Which area of {role.raw_label.lower()} work interests you? For example, a specialization or the tasks you want to do."
                 if role.concept_id and (not concept or concept.id != role.concept_id):
                     role = role.model_copy(update={"concept_id": None, "confirmed": False})
-                if key(role.raw_label) in {"analyst", "engineer", "consultant", "manager", "business", "graduate"}:
-                    clarification = f"Which area of {role.raw_label.lower()} work interests you? For example, a specialization or the tasks you want to do."
                 suggestions.append(role.model_copy(update={"concept_id": concept.id if concept else None}))
-        return {"role_intents": [s.model_dump() for s in suggestions], "clarification": clarification, "taxonomy_version": self.version, "unknown_roles": [s.raw_label for s in suggestions if not s.concept_id]}
+        return {"role_intents": [s.model_dump() for s in suggestions], "clarification": clarification,
+                "choices": choices, "taxonomy_version": self.version,
+                "unknown_roles": [s.raw_label for s in suggestions if not s.concept_id]}

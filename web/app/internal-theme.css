@@ -1,3 +1,4 @@
+body:has([data-atlas-landing]) { background:#f8f8f1; }
 /* Research Atlas application theme. Landing keeps its own scoped design. */
 body:not(:has([data-atlas-landing])) { --paper:#e9e2d1; --ink:#283d32; --muted:#515b46; --teal:#8c3d28; --deep-teal:#8c3d28; --green:#8c3d28; --dark:#283d32; --line:#b6b8a0; --white:#f2ecdd; --pale-teal:#d8d5be; --navy:#283d32; background:#e9e2d1; color:#283d32; }
 body:not(:has([data-atlas-landing])) :is(:where(h1,h2)) { font-family:Georgia,'Times New Roman',serif; font-weight:400; }

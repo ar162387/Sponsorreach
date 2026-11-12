@@ -229,3 +229,49 @@ def test_partial_review_reports_the_missing_profiles_in_coverage():
     assert result['profiles_fully_judged_at_k']==1
     assert result['overall_judged_item_coverage']==1/3
     assert result['profiles_total']==3 and result['abstentions']==1
+
+
+@pytest.mark.parametrize(('location', 'expected'), [
+    ({}, 'anywhere'),
+    ({'preferred_regions': ['Coventry'], 'relocate': True, 'strict': True}, 'anywhere'),
+    ({'preferred_regions': ['Coventry'], 'strict': True}, 'selected_area'),
+    ({'preferred_regions': ['Coventry']}, 'prefer_area'),
+    ({'preferred_regions': ['Coventry'], 'relocate': True, 'mode': 'selected_area'}, 'selected_area'),
+])
+def test_location_mode_legacy_compatibility(location, expected):
+    from sponsor_match.models import Location
+    assert Location.model_validate(location).effective_mode == expected
+
+
+def test_selected_area_separates_unknown_and_rejects_known_other_area(employer, profile):
+    from sponsor_match.models import Location
+    profile.location = Location(mode='selected_area', preferred_regions=['Coventry'])
+    employer.town = 'Coventry'
+    match = rank(employer, profile, Taxonomy(), 'snapshot')
+    assert match.features['location_section'] == 'main'
+    assert match.explanation['evidence']['location']['sources'][0]['type'] == 'company_address'
+    assert employer.workplace_locations == []
+    employer.town = 'Glasgow'
+    assert rank(employer, profile, Taxonomy(), 'snapshot') is None
+    employer.town = ''
+    match = rank(employer, profile, Taxonomy(), 'snapshot')
+    assert match.features['location_section'] == 'unknown'
+    assert match.explanation['evidence']['location'] == {'status': 'unknown', 'sources': []}
+
+
+def test_city_aliases_are_exact_and_anywhere_ignores_area(employer, profile):
+    from sponsor_match.models import Location
+    employer.town = 'Edinburgh'
+    profile.location = Location(mode='selected_area', preferred_regions=['City of Edinburgh'])
+    assert rank(employer, profile, Taxonomy(), 'snapshot').features['location_status'] == 'match'
+    employer.town = 'City of London'
+    profile.location = Location(mode='selected_area', preferred_regions=['London'])
+    assert rank(employer, profile, Taxonomy(), 'snapshot') is None
+    profile.location = Location(mode='anywhere', preferred_regions=['London'])
+    assert rank(employer, profile, Taxonomy(), 'snapshot').features['location_status'] == 'unrestricted'
+
+
+def test_invalid_explicit_area_requires_input():
+    from sponsor_match.models import Location
+    with pytest.raises(ValueError, match='Enter a city or county'):
+        Location(mode='selected_area', preferred_regions=[' '])

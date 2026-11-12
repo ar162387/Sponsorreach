@@ -2,10 +2,10 @@ import 'server-only';
 import {AsyncLocalStorage} from 'node:async_hooks';
 const reconciliationSignal=new AsyncLocalStorage<AbortSignal>();
 import {AgentaOS,type Checkout,type Subscription} from '@agentaos/pay';
-import {apiBase,supabase,isAdministrator} from './server';
+import {apiBase,verifiedUser,isAdministrator} from './server';
 export type Plan={active:boolean;slug:string;name:string;product_id:string;amount_minor:number;currency:string;credits:number;interval:string;environment:string};
 type Intent={id:string;user_id:string;provider_session:string|null;checkout_url:string|null;status:string;plan_snapshot:Plan;environment:string};
-type StoredSubscription={id:string;user_id:string;product_id:string;status:string;environment:string};
+type StoredSubscription={id:string;user_id:string;product_id:string;status:string;environment:string;cancel_at_period_end?:boolean};
 type Payment={id:string;invoice_id:string;status:string;paid_at:string;amount_minor:number;currency:string;subscription_id:string;user_id:string};
 export type Context={checkouts:Intent[];subscriptions:StoredSubscription[];payments:Payment[];refunds:{id:string;payment_id:string;status:string;user_id?:string}[]};
 export class BillingError extends Error{constructor(message:string,public status=503){super(message);}}
@@ -18,17 +18,17 @@ export async function internal<T>(action:string,body:Record<string,unknown>={}):
  const r=await fetch(apiBase()+'/api/internal/billing/'+action,{method:'POST',headers:{'Content-Type':'application/json','X-API-Secret':process.env.SPONSORMATCH_API_SECRET||'','X-Billing-Secret':secret},body:JSON.stringify({...body,environment:environment()}),cache:'no-store',signal:AbortSignal.timeout(20000)});
  const result=await r.json();if(!r.ok)throw new BillingError(typeof result.detail==='string'?result.detail:'Billing request failed',r.status);return result;
 }
-export async function account(staff=false){const client=await supabase();const user=client?(await client.auth.getUser()).data.user:null;if(!user||!user.email_confirmed_at)throw new BillingError('Sign in to your verified account',401);
+export async function account(staff=false){const user=await verifiedUser();if(!user||!user.email_confirmed_at)throw new BillingError('Sign in to your verified account',401);
  if(staff&&!isAdministrator(user))throw new BillingError('Administrator access required',403);return user;}
-export async function plans(includeArchived=false){const rows=(await internal<{plans:Plan[]}>('plans')).plans;return includeArchived?rows:rows.filter(p=>p.active&&p.currency==='USD'&&p.amount_minor===2499&&p.interval==='month'&&p.credits===800).slice(0,1);}
+export async function plans(includeArchived=false){const rows=(await internal<{plans:Plan[]}>('plans')).plans;return includeArchived?rows:rows.filter(p=>p.active&&p.currency==='EUR'&&p.amount_minor===2499&&p.interval==='month'&&p.credits===100).slice(0,1);}
 export async function context(uid?:string){return internal<Context>('context',uid?{user_id:uid}:{});}
 async function subscriptions(){const all:Subscription[]=[];for(let offset=0;offset<10000;offset+=100){const p=await provider().subscriptions.list({limit:100,offset});all.push(...p.items);if(!p.hasMore)return all;}throw new BillingError('Subscription reconciliation exceeded its page limit');}
 export async function startCheckout(uid:string,email:string,slug:string){if(!checkoutEnabled())throw new BillingError('Purchases are currently unavailable');
  if(environment()==='test'&&process.env.BILLING_TEST_CHECKOUT_PUBLIC!=='true'&&!(process.env.SPONSORREACH_ADMIN_USER_IDS||'').split(',').includes(uid))throw new BillingError('This test checkout is restricted to the administrator',403);
- if(!(await plans()).some(p=>p.slug===slug))throw new BillingError('The US$24.99 monthly subscription is not yet available');
+ if(!(await plans()).some(p=>p.slug===slug))throw new BillingError('The €24.99 monthly subscription is not yet available');
  const i=await internal<Intent>('prepare',{user_id:uid,plan:slug});if(i.provider_session&&i.checkout_url){const old=await provider().checkouts.retrieve(i.provider_session);if(old.status==='open')return {sessionId:i.provider_session,checkoutUrl:i.checkout_url};await internal('checkout-status',{session_id:i.provider_session,status:old.status});if(old.status==='completed'){await confirmSession(i.provider_session,uid);throw new BillingError('Your payment is being confirmed. Refresh billing.',409);}return startCheckout(uid,email,slug);}
  const p=await provider().paymentLinks.retrieve(i.plan_snapshot.product_id);
- if(p.id!==i.plan_snapshot.product_id||p.type!=='subscription'||p.billingInterval!=='month'||Math.round(p.amount*100)!==i.plan_snapshot.amount_minor||!['USD','USDC'].includes(p.currency)||i.plan_snapshot.currency!=='USD'||i.plan_snapshot.amount_minor!==2499)throw new BillingError('The configured product does not match this plan');
+ if(p.id!==i.plan_snapshot.product_id||p.type!=='subscription'||p.billingInterval!=='month'||Math.round(p.amount*100)!==i.plan_snapshot.amount_minor||!['EUR','EURC'].includes(p.currency.toUpperCase())||i.plan_snapshot.currency!=='EUR'||i.plan_snapshot.amount_minor!==2499)throw new BillingError('The configured product does not match this plan');
  const origin=process.env.AGENTAOS_RETURN_ORIGIN||'';if(!origin.startsWith('https://'))throw new BillingError('A secure payment return address is required');
  const checkout=await provider().checkouts.create({linkId:p.id,buyerEmail:email,metadata:{customerId:uid,checkoutIntentId:i.id},successUrl:origin+'/account/billing',cancelUrl:origin+'/account/billing',...(process.env.AGENTAOS_WEBHOOK_SECRET?{webhookUrl:origin+'/api/payments/agentaos/webhook'}:{})},{idempotencyKey:i.id} as Parameters<AgentaOS['checkouts']['create']>[1]);
  await internal('bind',{intent_id:i.id,user_id:uid,session_id:checkout.sessionId,url:checkout.checkoutUrl,expires_at:checkout.expiresAt});return {sessionId:checkout.sessionId,checkoutUrl:checkout.checkoutUrl};
@@ -78,7 +78,7 @@ export async function confirmSession(sessionId:string,uid?:string,knownSale?:Sal
 }
 export async function syncAccount(uid:string){let pending=false;const ctx=await context(uid);for(const i of ctx.checkouts.filter(i=>i.status==='pending'&&i.provider_session)){try{const state=await confirmSession(i.provider_session!,uid);if(state.status==='open')pending=true;}catch(e){if(e instanceof BillingError&&e.status===409)pending=true;else throw e;}}
  for(const sub of (ctx.subscriptions.length?await subscriptions():[]).filter(s=>ctx.subscriptions.some(old=>old.id===s.id)))await internal('subscription',{subscription:sub});return {...await context(uid),pending};}
-export async function cancel(uid:string){const ctx=await context(uid);const active=ctx.subscriptions.filter(s=>!['canceled','incomplete_expired'].includes(s.status));for(const s of active){await provider().subscriptions.cancel(s.id,{atPeriodEnd:true});await internal('subscription',{subscription:{id:s.id,status:s.status,cancelAtPeriodEnd:true}});}return {scheduled:true};}
+export async function cancel(uid:string, options?:{skipScheduled?:boolean}){const ctx=await context(uid);const active=ctx.subscriptions.filter(s=>!['canceled','incomplete_expired'].includes(s.status)&&(!options?.skipScheduled||!s.cancel_at_period_end));for(const s of active){const result=await provider().subscriptions.cancel(s.id,{atPeriodEnd:true});if(options?.skipScheduled&&!result?.cancelAtPeriodEnd&&result?.status!=='canceled')throw new BillingError('Subscription cancellation is pending');await internal('subscription',{subscription:{id:s.id,status:result?.status||s.status,cancelAtPeriodEnd:result?.cancelAtPeriodEnd??true}});}return {scheduled:true};}
 export async function requestRefund(uid:string,paymentId:string,reason:string,staff=false){
  const r=await internal<{request:{id:string;status:string};payment:Payment}>('refund-prepare',{user_id:uid,payment_id:paymentId,reason,staff});
  return submitSavedRefund(r.request,r.payment.user_id,paymentId);
@@ -127,7 +127,7 @@ async function reconcileWork(signal:AbortSignal){
  }
  return {errors,complete:offset===0};
 }
-export async function salesAvailable(){if(!checkoutEnabled())return false;if(!(await plans()).length)return false;if(environment()==='test')return true;return (await internal<{research_ready:boolean}>('launch-status')).research_ready;}
+export async function salesAvailable(catalogue?:Plan[]){if(!checkoutEnabled())return false;if(!(catalogue??await plans()).length)return false;if(environment()==='test')return true;return (await internal<{research_ready:boolean}>('launch-status')).research_ready;}
 export async function commercialOffer(){const creditMode=['test','live'].includes(process.env.BILLING_MODE||'')||process.env.BILLING_ENFORCE_CREDITS==='true';let catalogue:Plan[]=[];if(creditMode){try{catalogue=await plans();}catch{}}return {creditMode,enabled:await salesAvailable(),catalogue};}
 
 export async function reconcile(source:'scheduled'|'manual'='scheduled',actorId?:string){

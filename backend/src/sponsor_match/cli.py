@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import time
+from datetime import datetime, UTC
 from pathlib import Path
 from uuid import UUID,uuid4
 from psycopg.types.json import Jsonb
@@ -13,7 +14,7 @@ from .config import Settings
 from .db import Database
 from .models import Profile
 from .providers import OpenAI
-from .search import Matcher
+from .search import Matcher, RegisterUnavailable
 from .ingest import import_csv,import_legacy,import_ledger,import_register
 from .fixtures import seed_demo
 from .evidence import fetch_public,page_text,review_source,refresh_channel
@@ -70,6 +71,9 @@ def worker(db,settings,once=False):
             else:
                 raise ValueError("unknown_work_kind")
             db.finish_work(item["id"])
+        except RegisterUnavailable:
+            log.warning("Match unavailable: sponsor register is missing or stale")
+            db.fail_work(item, "register_unavailable", 1)
         except Exception as e:
             # Never log profile bodies, contact values, DB credentials or provider responses.
             code="provider_unavailable" if "Provider" in type(e).__name__ else "processing_failed"
@@ -91,6 +95,8 @@ def main():
         p=sub.add_parser(command);p.add_argument("path");p.add_argument("--namespace",required=True)
     p=sub.add_parser("import-register");p.add_argument("path");p.add_argument("--url",required=True);p.add_argument("--publication-date",required=True);p.add_argument("--allow-large-change",action="store_true")
     p=sub.add_parser("fetch-register");p.add_argument("--output",default="../data/register")
+    p.add_argument("--minimum-active-age-days",type=int,choices=range(1,8),
+                   help="Check for a new publication only when the active register reaches this age")
     p=sub.add_parser("index");p.add_argument("--batch-size",type=int,default=32);p.add_argument("--resume")
     sub.add_parser("index-versions")
     p=sub.add_parser("rollback-index");p.add_argument("index_id")
@@ -117,6 +123,9 @@ def main():
     sub.add_parser("status")
     sub.add_parser('embedding-check')
     sub.add_parser("purge-expired")
+    for command in ("restore-member", "erase-member", "erase-google-data", "erase-facebook-data"):
+        p=sub.add_parser(command)
+        p.add_argument("identifier", help="Account UUID or provider subject for provider-data erasure")
     args=parser.parse_args()
     if args.command=='audit-csv':
         from .catalogue_cleanup import inspect_csv
@@ -143,6 +152,20 @@ def main():
         result=None
         if args.command=="migrate":
             db.migrate();result={"migrated":True}
+        elif args.command in ("restore-member", "erase-member", "erase-google-data", "erase-facebook-data"):
+            from .member_access import erase_provider_data, request_closure, restore_member, staff_account
+            if args.command.startswith("erase-") and args.command.endswith("-data"):
+                provider=args.command.split("-")[1]
+                result={"removed":erase_provider_data(db, provider, args.identifier)}
+            else:
+                uid=str(UUID(args.identifier))
+                if args.command=="restore-member":
+                    result={"restored":restore_member(db, uid)}
+                else:
+                    if staff_account(uid, ""):
+                        raise SystemExit("Manage staff accounts separately")
+                    result=request_closure(db, uid, "", immediate=True)
+                    result={"queued":bool(result)}
         elif args.command=='cleanup-catalogue':
             from .catalogue_cleanup import cleanup_catalogue
             result=cleanup_catalogue(db,args.path,args.namespace,args.output)
@@ -184,6 +207,12 @@ def main():
         elif args.command=="fetch-register":
             from bs4 import BeautifulSoup
             import re
+            today=datetime.now(UTC).date()
+            if args.minimum_active_age_days:
+                active=db.one("select publication_date from sm.source_artifacts where id=%s",(db.active_snapshot(),))
+                if active and 0<=(today-active["publication_date"]).days<args.minimum_active_age_days:
+                    print(json.dumps({"changed":False,"publication_date":active["publication_date"].isoformat()}))
+                    return
             html,_,_=fetch_public("https://www.gov.uk/government/publications/register-of-licensed-sponsors-workers")
             soup=BeautifulSoup(html,"html.parser")
             urls=sorted({a["href"] for a in soup.select("a[href]") if "assets.publishing.service.gov.uk" in a["href"] and a["href"].endswith(".csv")})
@@ -192,6 +221,8 @@ def main():
             match=re.search(r"(\d{4}-\d{2}-\d{2})",urls[0])
             if not match:
                 raise ValueError("The register URL does not include its publication date")
+            if args.minimum_active_age_days and not 0<=(today-datetime.fromisoformat(match[1]).date()).days<=7:
+                raise ValueError("GOV.UK has not published a register within the seven-day matching window")
             content,final,_=fetch_public(urls[0],limit=30_000_000)
             folder=Path(args.output);folder.mkdir(parents=True,exist_ok=True)
             target=folder/(match[1]+".csv")
@@ -211,6 +242,8 @@ def main():
             if not version or version['status']!='published':raise ValueError("Choose a previously published index")
             result=publish_index(db,args.index_id)
         elif args.command=="worker":
+            logging.basicConfig(level=logging.WARNING)
+            logging.getLogger("sponsor_match.search").setLevel(logging.INFO)
             if args.once or args.concurrency==1:
                 worker(db,settings,args.once)
             else:

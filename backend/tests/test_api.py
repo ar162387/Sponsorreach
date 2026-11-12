@@ -216,6 +216,48 @@ def test_register_linkage_preserves_legacy_sources_and_detects_supported_conflic
         db.execute('delete from sm.source_artifacts where id=%s',(artifact_id,))
 
 
+def test_register_refresh_revalidates_employers_without_rebuilding_documents(integration,tmp_path):
+    from datetime import datetime,UTC,timedelta
+    from sponsor_match.ingest import import_register
+    from sponsor_match.models import Employer
+    from sponsor_match.ranking import sponsor_valid
+
+    db,_,_=integration
+    today=datetime.now(UTC).date()
+    employers=[
+        db.save_employer(Employer(id=str(uuid4()),name='Refresh fixture '+str(uuid4()),town='Test Town',
+                                  identity_status='accepted',source_namespace='refresh-fixture',
+                                  source_key=str(uuid4()),matching_basis='provided_csv'))
+        for _ in range(2)
+    ]
+    ids=[e.id for e in employers]
+    def documents():
+        return db.rows("select id,content_hash,sponsor_eligible from sm.search_documents where employer_id=any(%s::uuid[]) order by id",(ids,))
+    def publish(date,names):
+        path=tmp_path/(date.isoformat()+'.csv')
+        path.write_text('Organisation Name,Town/City,County,Type & Rating,Route\n'+'\n'.join(
+            name+',Test Town,,Worker (A rating),Skilled Worker' for name in names+[f'Filler {i}' for i in range(1000)]))
+        return import_register(db,path,'https://www.gov.uk/register',date.isoformat())
+
+    stale=publish(today-timedelta(days=8),[e.name for e in employers])
+    before=documents()
+    assert len(before)==2 and not any(d['sponsor_eligible'] for d in before)
+    current=publish(today,[employers[0].name])
+    assert current['changed'] and db.active_snapshot()==current['artifact_id']
+    kept,removed=[db.employer(eid) for eid in ids]
+    assert sponsor_valid(kept,current['artifact_id'])
+    assert not sponsor_valid(removed,current['artifact_id'])
+    assert removed.memberships[0].snapshot_id==stale['artifact_id']
+    after=documents()
+    assert [(d['id'],d['content_hash']) for d in after]==[(d['id'],d['content_hash']) for d in before]
+    assert sum(d['sponsor_eligible'] for d in after)==1
+    assert not publish(today,[employers[0].name])['changed']
+    assert db.employer(kept.id).version==kept.version
+    with pytest.raises(ValueError,match='older register'):
+        publish(today-timedelta(days=1),[employers[0].name])
+    assert db.active_snapshot()==current['artifact_id']
+
+
 def test_account_association_requires_owner_and_verified_email(integration,monkeypatch):
     db,settings,_=integration
     from dataclasses import replace
@@ -367,3 +409,84 @@ def test_visible_card_includes_imported_contact_routes(integration):
     assert any(c['value']=='recorded@employer.example' and c['note']=='Imported · not rechecked' for c in card['channels'])
     assert any(c['kind']=='linkedin_company' and 'Imported' in c['note'] for c in card['channels'])
     assert any(c['label']=='Totaljobs · search results' for c in card['channels'])
+
+
+def test_conflicting_architect_requires_clarification_before_session_creation(integration):
+    db, _, client = integration
+    body = request()
+    body['profile']['background']['subject'] = 'Architecture and computer science'
+    body['profile']['role_intents'] = [{'raw_label': 'Architect', 'confirmed': True,
+                                       'concept_id': 'bootstrap:accounting'}]
+    headers = {'X-Session-Token': 'q' * 64}
+    response = client.post('/api/matches', json=body, headers=headers)
+    assert response.status_code == 422
+    assert db.one('select id from sm_private.match_sessions where idempotency_key=%s',
+                  (body['idempotency_key'],)) is None
+    choices = response.json()['detail']['normalization']['choices'][0]['options']
+    choice = next(option for option in choices if option['label'] == 'Building architect')
+    body['profile']['role_intents'][0]['concept_id'] = choice['concept_id']
+    response = client.post('/api/matches', json=body, headers=headers)
+    assert response.status_code == 202
+    session = db.one('select p.profile from sm_private.match_sessions s join sm_private.candidate_profiles p on p.id=s.profile_id where s.id=%s',
+                     (response.json()['session_id'],))
+    assert session['profile']['role_intents'][0]['concept_id'] == choice['concept_id']
+    worker(db, integration[1], once=True)
+
+
+def test_matcher_recovers_concept_candidates_beyond_old_limit_and_reuses_embeddings(monkeypatch):
+    from dataclasses import replace
+    from datetime import UTC, datetime
+    import sponsor_match.search as search
+    from sponsor_match.models import Profile
+    from sponsor_match.taxonomy import Taxonomy
+    from test_matching import employer
+    # All but the final employer are irrelevant at the evidence stage.
+    matching = employer.__wrapped__()
+    matching.town = 'Coventry'
+    ids = [f'{n:04d}' for n in range(101)]
+    matching.id = ids[-1]
+
+    class DB:
+        def taxonomy(self):
+            return Taxonomy()
+        def one(self, query, params=()):
+            if 'max(updated_at)' in query:
+                return dict(revision='fixed', active_index=dict(id='id', model='text-embedding-3-small',
+                                                               dimensions=768), snapshot='snapshot',
+                            demo_snapshot=None, publication=datetime.now(UTC).date())
+            return {'ready': True} if 'select exists' in query else None
+        def rows(self, query, params=()):
+            if 'sm.employer_concepts' in query:
+                assert 'limit' not in query.lower()
+                return [{'employer_id': i} for i in ids]
+            return []
+        def transaction(self):
+            from contextlib import nullcontext
+            return nullcontext(self)
+        def execute(self, query, params=()):
+            if 'hnsw' in query or 'vector' in query:
+                return self
+            keys.append(params[0])
+        def fetchall(self):
+            return []
+        def employers(self, batch):
+            return [matching] if matching.id in batch else []
+
+    calls, keys = [], []
+    class Provider:
+        def embeddings(self, queries):
+            calls.extend(queries)
+            return [[1.] * 768 for _ in queries]
+
+    monkeypatch.setattr(search, 'embedding_provider', lambda _: Provider())
+    matcher = search.Matcher(DB(), Settings())
+    profile = Profile.model_validate(request()['profile'])
+    baseline, _, versions = matcher.search(profile)
+    assert [r.employer_id for r in baseline] == [matching.id]
+    assert versions['diagnostics']['retrieved'] == 101
+    profile.location = profile.location.model_copy(update={'mode': 'selected_area', 'preferred_regions': ['Leeds']})
+    assert not matcher.search(profile)[0]
+    assert len(calls) == 1 and keys[0] != keys[1]
+    matcher.settings = replace(matcher.settings, embedding_provider='local')
+    matcher.embeddings(calls[:1])
+    assert len(calls) == 2

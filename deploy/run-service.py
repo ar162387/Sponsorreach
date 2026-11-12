@@ -4,13 +4,18 @@ import os
 from pathlib import Path
 import sys
 
+pool_size_override = os.environ.get('SPONSORMATCH_DB_POOL_SIZE')
 os.environ.update(json.loads(Path('/etc/sponsorreach/runtime.json').read_text()))
+if pool_size_override:
+    os.environ['SPONSORMATCH_DB_POOL_SIZE'] = pool_size_override
 # Versioned releases share the pinned environment, but import their own source.
 os.environ['PYTHONPATH']='/opt/sponsorreach/app/backend/src'
 commands = {
     'api': ['/opt/sponsorreach/app/backend/.venv/bin/uvicorn', 'sponsor_match.api:app', '--host', '127.0.0.1', '--port', '8001', '--workers', '1'],
     'worker': ['/opt/sponsorreach/app/backend/.venv/bin/sponsormatch', 'worker', '--concurrency', '1'],
     'web': ['/usr/local/bin/node', '/opt/sponsorreach/app/web/.next/standalone/server.js'],
+    'register-refresh': ['/opt/sponsorreach/app/backend/.venv/bin/sponsormatch', 'fetch-register',
+                         '--output', '/var/lib/sponsorreach-register', '--minimum-active-age-days', '4'],
 }
 os.chdir('/opt/sponsorreach/app/backend' if sys.argv[1] != 'web' else '/opt/sponsorreach/app/web')
 os.execv(commands[sys.argv[1]][0], commands[sys.argv[1]])

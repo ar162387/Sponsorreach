@@ -29,6 +29,10 @@ async function handle(request: Request, verify: boolean) {
     const { data, error } = await client.auth.verifyOtp({ email, token: body.token, type: 'email' });
     if (error || !data.session) return reply({ error: 'That code is invalid or has expired. Try again or request a new code.' }, 400);
     const associated = await fetch(apiBase() + '/api/account/associate', { method: 'POST', headers: await gatewayHeaders(), cache: 'no-store', signal: AbortSignal.timeout(15000) });
+    if (associated.status === 403) {
+      await client.auth.signOut({ scope: 'local' });
+      return reply({ next: '/account?signin=closed' });
+    }
     if (!associated.ok) return reply({ next: '/account?signin=association_failed' });
     return reply({ next });
   } catch { return reply({ error: 'Unable to complete email sign-in. Please try again.' }, 400); }

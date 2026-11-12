@@ -34,6 +34,23 @@ class Location(Model):
     preferred_regions: list[str] = Field(default_factory=list, max_length=5)
     relocate: bool = False
     strict: bool = False
+    mode: Literal["anywhere", "prefer_area", "selected_area"] | None = None
+
+    @model_validator(mode="after")
+    def area_required(self):
+        if self.mode in {"prefer_area", "selected_area"} and not any(
+            value.strip() for value in self.preferred_regions
+        ):
+            raise ValueError("Enter a city or county for the selected location mode")
+        return self
+
+    @property
+    def effective_mode(self):
+        if self.mode is not None:
+            return self.mode
+        if not any(value.strip() for value in self.preferred_regions) or self.relocate:
+            return "anywhere"
+        return "selected_area" if self.strict else "prefer_area"
 
 
 class Profile(Model):

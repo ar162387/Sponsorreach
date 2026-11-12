@@ -1,6 +1,6 @@
 'use client';
 import {useEffect,useState} from 'react';
-import Link from 'next/link';
+import Link from '@/components/navigation-link';
 import {api} from '@/lib/types';
 import {CREDITS_CHANGED} from './dashboard-shell';
 type Allowance={credit_mode:boolean;available:number;preview_available:boolean};

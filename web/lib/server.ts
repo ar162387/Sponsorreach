@@ -20,8 +20,24 @@ export const verifiedUser = cache(async () => {
   if (error && error.name !== 'AuthSessionMissingError' && ![400, 401, 403].includes(error.status || 0)) {
     throw new Error('Your sign-in could not be checked. Please try again.');
   }
-  return !error && user?.email_confirmed_at ? user : null;
+  if (error || !user?.email_confirmed_at) return null;
+  const { data: { session } } = await client.auth.getSession();
+  if (!session || !await memberSessionAllowed(user.id, session.access_token)) return null;
+  return user;
 });
+export async function memberSessionAllowed(userId: string, accessToken: string) {
+  // Local OTP-only previews can run without a gateway secret. Hosted social
+  // sign-in and deletion require it, and the backend also guards member APIs.
+  const secret = process.env.SPONSORMATCH_API_SECRET;
+  if (!secret) return process.env.NODE_ENV !== 'production';
+  const response = await fetch(apiBase() + '/api/internal/member-access/status', {
+    method: 'POST', cache: 'no-store', signal: AbortSignal.timeout(8000),
+    headers: { 'Content-Type': 'application/json', 'X-API-Secret': secret, Authorization: 'Bearer ' + accessToken },
+    body: JSON.stringify({ user_id: userId }),
+  });
+  if (!response.ok) throw new Error('Your sign-in could not be checked. Please try again.');
+  return (await response.json()).blocked === false;
+}
 export async function sessionToken() {
   const jar = await cookies();
   let token = jar.get('sm_owner')?.value;

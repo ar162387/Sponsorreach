@@ -3,11 +3,12 @@ import argparse,json,sys
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'backend/src'))
 from sponsor_match.config import Settings
+from sponsor_match.billing import MONTHLY_CREDITS
 from sponsor_match.db import Database
 p=argparse.ArgumentParser();p.add_argument('plan_json',type=Path);args=p.parse_args()
 data=json.loads(args.plan_json.read_text());fields=['slug','environment','name','product_id','amount_minor','currency','interval','credits']
 assert set(data)<=set(fields)|{'active'} and all(k in data for k in fields),'Provide the documented plan fields'
-assert data['environment'] in ('test','live') and data['interval']=='month' and data['currency']=='USD' and data['amount_minor']==2499 and data['credits']==800
+assert data['environment'] in ('test','live') and data['interval']=='month' and data['currency']=='EUR' and data['amount_minor']==2499 and data['credits']==MONTHLY_CREDITS
 assert isinstance(data['credits'],int) and 0<data['credits']<=1000000
 assert isinstance(data['amount_minor'],int) and 0<data['amount_minor']<=100000000
 assert data['slug'] and data['product_id'] and data['name']

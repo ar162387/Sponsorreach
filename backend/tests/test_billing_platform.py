@@ -16,12 +16,14 @@ def platform(monkeypatch):
     if not url:pytest.skip('Requires isolated billing test database')
     monkeypatch.setenv('BILLING_INTERNAL_SECRET','s'*32)
     monkeypatch.setenv('BILLING_MODE','test')
-    db=Database(url);db.open();db.migrate();db.close();db=Database(url)
+    db=Database(url);db.open();db.migrate()
+    db.execute("insert into sm_private.billing_plans(slug,environment,name,product_id,amount_minor,currency,interval,credits,active) values('monthly-eur-test','test','SponsorReach Monthly','fixture-eur-product',2499,'EUR','month',100,true) on conflict do nothing")
+    db.close();db=Database(url)
     with TestClient(create_app(Settings(database_url=url),db)) as c:yield c,db
 
 def post(c,action,**body):return c.post('/api/internal/billing/'+action,json={'environment':'test',**body},headers={'x-billing-secret':'s'*32})
 
-def paid_account(db,allowance=800,environment='test'):
+def paid_account(db,allowance=100,environment='test'):
     uid=str(uuid4());now=datetime.now(UTC)
     args=dict(user_id=uid,subscription_id=str(uuid4()),payment_id=str(uuid4()),invoice_id=str(uuid4()),starts_at=now-timedelta(days=1),ends_at=now+timedelta(days=29),environment=environment,product_id='test-product',allowance=allowance)
     Credits(db).record_verified_payment(**args)
@@ -41,31 +43,30 @@ def test_future_plan_amounts_and_archive_are_immutable(platform):
     # Mutable merchandising is distinct from the immutable customer contract.
     db.execute("update sm_private.billing_plans set active=false where slug='monthly' and environment='test'")
     assert Credits(db).summary(uid)['available']==2400
-    db.execute("update sm_private.billing_plans set active=true where slug='monthly' and environment='test'")
 
 def test_test_credits_do_not_fund_live_usage(platform,monkeypatch):
     c,db=platform;uid,args=paid_account(db)
-    assert Credits(db).summary(uid)['available']==800
+    assert Credits(db).summary(uid)['available']==100
     monkeypatch.setenv('BILLING_MODE','live')
     assert Credits(db).summary(uid)['available']==0
     with pytest.raises(InsufficientCredits):Credits(db).reserve(uid,str(uuid4()))
 
 def test_pending_checkout_reused_and_wrong_owner_cannot_bind(platform):
     c,_=platform;uid=str(uuid4())
-    a=post(c,'prepare',user_id=uid,plan='monthly');b=post(c,'prepare',user_id=uid,plan='monthly')
+    a=post(c,'prepare',user_id=uid,plan='monthly-eur-test');b=post(c,'prepare',user_id=uid,plan='monthly-eur-test')
     assert a.status_code==200 and a.json()['id']==b.json()['id']
     assert post(c,'bind',intent_id=a.json()['id'],user_id=str(uuid4()),session_id=str(uuid4()),url='https://example.invalid',expires_at='2030-01-01T00:00:00Z').status_code==404
 
 def test_verified_fulfilment_replay_and_correlation(platform):
-    c,db=platform;uid=str(uuid4());intent=post(c,'prepare',user_id=uid,plan='monthly').json();sid=uuid4().hex
+    c,db=platform;uid=str(uuid4());intent=post(c,'prepare',user_id=uid,plan='monthly-eur-test').json();sid=uuid4().hex
     assert post(c,'bind',intent_id=intent['id'],user_id=uid,session_id=sid,url='https://example.invalid',expires_at='2030-01-01T00:00:00Z').status_code==200
-    plan=intent['plan_snapshot'];sub={'id':str(uuid4()),'linkId':plan['product_id'],'currency':'usd','unitAmountMinor':1999}
-    payment={'id':str(uuid4()),'invoice_id':str(uuid4()),'amount_minor':1999,'currency':'USD'}
+    plan=intent['plan_snapshot'];sub={'id':str(uuid4()),'linkId':plan['product_id'],'currency':'eur','unitAmountMinor':2499}
+    payment={'id':str(uuid4()),'invoice_id':str(uuid4()),'amount_minor':2499,'currency':'EUR'}
     checkout={'sessionId':sid,'metadata':{'customerId':uid,'checkoutIntentId':intent['id']}}
     now=datetime.now(UTC);body=dict(plan=plan,subscription=sub,payment=payment,checkout=checkout,starts_at=(now-timedelta(days=1)).isoformat(),ends_at=(now+timedelta(days=29)).isoformat())
     assert post(c,'fulfil',**body).json()['granted']
     assert not post(c,'fulfil',**body).json()['granted']
-    assert Credits(db).summary(uid)['available']==800
+    assert Credits(db).summary(uid)['available']==100
     checkout['metadata']['customerId']=str(uuid4())
     assert post(c,'fulfil',**body).status_code==409
 
@@ -85,7 +86,7 @@ def test_expired_and_empty_work_release_without_recharging(platform):
     session=str(uuid4());Credits(db).reserve(uid,session)
     db.execute("update sm_private.credit_reservations set expires_at=now()-interval '1 second' where session_id=%s",(session,))
     assert not Credits(db).settle(uid,session,True)
-    assert Credits(db).summary(uid)['available']==800
+    assert Credits(db).summary(uid)['available']==100
 
 def test_shared_currency_feature_spending_is_idempotent(platform):
     c,db=platform;uid,_=paid_account(db);action='test-'+uuid4().hex
@@ -103,7 +104,7 @@ def test_live_checkout_refuses_missing_current_official_source(platform):
     try:
         db.execute("update sm.source_artifacts set metadata=jsonb_set(metadata,'{active}','false') where kind='official_register'")
         assert post(c,'launch-status',environment='live').json()['research_ready'] is False
-        assert post(c,'prepare',environment='live',user_id=str(uuid4()),plan='monthly').status_code==503
+        assert post(c,'prepare',environment='live',user_id=str(uuid4()),plan='monthly-eur-test').status_code==503
         assert db.one('select count(*) n from sm_private.billing_checkouts')['n']==before
     finally:
         for snapshot in snapshots:db.execute('update sm.source_artifacts set metadata=%s where id=%s',(Jsonb(snapshot['metadata']),snapshot['id']))

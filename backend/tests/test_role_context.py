@@ -94,3 +94,50 @@ def test_database_pool_defaults_fit_free_session_pool_budget(monkeypatch):
     monkeypatch.setenv('SPONSORMATCH_DB_POOL_SIZE','0')
     import pytest
     with pytest.raises(ValueError):Database('postgresql://localhost/test')
+
+
+def test_architect_evidence_is_specific_to_the_selected_profession(employer, profile):
+    profile.role_intents = [RoleIntent(raw_label='Architect', confirmed=True)]
+    profile.background.subject = 'Architecture and Urban Design'
+    profile.skills = [Skill(label='Revit')]
+    employer.claims = [claim('Business architect, OutSystems architect, MDM architect', 'historical_role')]
+    assert rank(employer, profile, Taxonomy(), 'snapshot', 1) is None
+    employer.claims.append(claim('Project architect using Revit', 'historical_role'))
+    result = rank(employer, profile, Taxonomy(), 'snapshot')
+    evidence = result.explanation['evidence']
+    assert evidence['profession']['label'] == 'Building architect'
+    assert evidence['profession']['sources'][0]['text'] == 'Project architect using Revit'
+    assert evidence['skills']['recorded'][0]['label'] == 'Revit'
+    assert evidence['hiring_basis'] == 'historical_role'
+    assert evidence['matching_vacancies'] == []
+
+
+def test_explicit_technology_target_overrides_previous_architecture_background(profile):
+    profile.role_intents = [RoleIntent(raw_label='Cloud architect', confirmed=True)]
+    profile.background.subject = 'Architecture'
+    profile.career_stage = 'career_changer'
+    taxonomy = Taxonomy()
+    assert taxonomy.intent_target(profile.role_intents[0], profile).label == 'Software/cloud architect'
+
+
+def test_skill_synonyms_are_deduplicated_and_require_matching_role(employer, profile):
+    profile.role_intents = [RoleIntent(raw_label='Software developer', confirmed=True)]
+    profile.skills = [Skill(label=skill) for skill in
+                      ['React.js', 'React', 'PowerBI', 'Java', 'SolidWorks']]
+    employer.claims = [
+        claim('Software developer using React and JavaScript, CAD designer using SolidWorks', 'historical_role'),
+        claim('Software engineer using Power BI and CAD', 'historical_role').model_copy(update={'id': 'second-role'}),
+    ]
+    result = rank(employer, profile, Taxonomy(), 'snapshot')
+    evidence = result.explanation['evidence']['skills']
+    assert [skill['label'] for skill in evidence['recorded']] == ['React.js', 'PowerBI']
+    assert evidence['not_recorded'] == ['Java', 'SolidWorks']
+
+
+def test_cloud_architecture_context_does_not_imply_building_work(profile):
+    profile.role_intents = [RoleIntent(raw_label='Architect', confirmed=True)]
+    profile.background.subject = 'Computer Science'
+    profile.skills = [Skill(label='Cloud architecture'), Skill(label='AWS')]
+    normalized = Taxonomy().normalize(profile)
+    assert normalized['clarification'] is None
+    assert normalized['role_intents'][0]['concept_id'] == 'local:sponsorreach-architect-technology'

@@ -56,6 +56,8 @@ def install_billing_gateway(app,db):
             if mode=='live' and not db.one("select exists(select 1 from sm.source_artifacts where kind='official_register' and metadata->>'active'='true' and publication_date between current_date-7 and current_date) ready")['ready']:raise HTTPException(503,'Company research is temporarily unavailable while its official source is refreshed')
             with db.transaction() as c:
                 lock_account(c,uid)
+                if c.execute("select 1 from sm_private.member_closures where user_id=%s and status<>'restored'",(uid,)).fetchone():
+                    raise HTTPException(403,'This account is scheduled for deletion')
                 if c.execute("select 1 from sm_private.billing_subscriptions where user_id=%s and environment=%s and status not in ('canceled','incomplete_expired')",(uid,mode)).fetchone():raise HTTPException(409,'Manage your existing subscription before starting another')
                 plan=c.execute('select * from sm_private.billing_plans where slug=%s and environment=%s and active',(body.get('plan','monthly'),mode)).fetchone()
                 if not plan:raise HTTPException(404,'Plan not available')
@@ -88,6 +90,10 @@ def install_billing_gateway(app,db):
             return {'saved':True}
         if action=='inbox':
             event=body['event'];event_id=body['event_id']
+            # Reconciliation retrieves the source objects from the provider. Store
+            # only routing fields rather than customer information from events.
+            event={key:event.get(key) for key in ('id','business','type')} | {'data':{
+                key:event['data'][key] for key in ('livemode','sessionId','id') if key in event['data']}}
             db.execute('insert into sm_private.billing_events(id,payload) values(%s,%s) on conflict do nothing',(mode+':'+event_id,Jsonb(event)))
             return {'saved':True}
         if action=='events':return {'events':db.rows("select id,payload from sm_private.billing_events where status='pending' and id like %s order by created_at limit 50",(mode+':%',))}

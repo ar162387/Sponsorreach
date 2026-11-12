@@ -3,12 +3,13 @@ from urllib.parse import urlparse
 from dataclasses import dataclass
 import re
 from .models import Employer, Profile
-from .taxonomy import Taxonomy, contains, key
+from .taxonomy import Taxonomy, architect_domains, architect_role, contains, key
+from .match_rules import EXPLANATION_VERSION, industry_phrases, location_evidence, skill_identity, skill_present
 from .intelligence import accepted
 from .intelligence import digest
 from .quality import channel_shape
 
-RANKING_VERSION = "evidence-11-general-role-context"
+RANKING_VERSION = "evidence-12-profession-area"
 QUALITY = {"first_party": 1.0, "ats": .85, "third_party": .65, "historical_import": .40, "provided_csv": .40, "demo": 1.0}
 
 
@@ -41,6 +42,18 @@ def supporting_spans(claim, intent, target, taxonomy):
         phrases=[intent.raw_label]
     spans=[]
     for span in role_segments(claim):
+        family = target.metadata.get('architect_family') if target else None
+        if family:
+            descriptors = [phrase for phrase in target.activities if contains(span, phrase)]
+            if claim.kind == 'activity' and descriptors and all(
+                re.search(r'\b' + re.escape(key(phrase)) +
+                          r'[s ]*(?:merchant|supplies|supplier|equipment|training|education|software)\b',
+                          key(span)) for phrase in descriptors
+            ):
+                continue
+            if architect_domains(span) == {family}:
+                spans.append(span)
+            continue
         matches=[p for p in phrases if contains(span,p)]
         if not matches:continue
         if claim.kind=='activity' and all(re.search(r'\b'+re.escape(key(p))+r"[s ]*(?:merchant|supplies|supplier|equipment|training|education)\b",key(span)) for p in matches):continue
@@ -76,7 +89,7 @@ def distinctive_modifiers(intent,target,taxonomy):
 
 
 def interleave_intents(results,intents,limit):
-    ordered=sorted(results,key=lambda r:(-r.score,r.employer_id))
+    ordered=sorted(results,key=result_order)
     if len(intents)<2:return ordered[:limit]
     buckets=[[r for r in ordered if r.features['intent']==i.raw_label] for i in intents]
     output=[];seen=set()
@@ -135,18 +148,29 @@ class Ranked:
     employer_version: str
 
 
-def rank(employer: Employer, profile: Profile, taxonomy: Taxonomy, active_snapshot: str, semantic=0., at=None):
+def result_order(result):
+    return (result.features.get('location_status') != 'match', -result.score, result.employer_id)
+
+
+def claim_reference(claim, span):
+    return {'claim_id': claim.id, 'text': span, 'source_url': claim.source_url}
+
+
+def rank(employer: Employer, profile: Profile, taxonomy: Taxonomy, active_snapshot: str, semantic=0., at=None, diagnostics=None):
     at = at or datetime.now(UTC)
     channels = usable_channels(employer, at)
     if employer.identity_status != "accepted" or not channels or not sponsor_valid(employer, active_snapshot, at):
         return None
-    if profile.location.strict and employer.workplace_locations and not profile.location.relocate and profile.location.preferred_regions and not any(contains(loc, p) for loc in employer.workplace_locations for p in profile.location.preferred_regions):
-        return None
+    if diagnostics is not None:
+        diagnostics['eligible'] += 1
+    location = location_evidence(employer, profile.location)
     claims = [c for c in employer.claims if accepted(c, at)]
     best = None
     for intent in profile.role_intents:
         intent_semantic=semantic.get(intent.raw_label,0.) if isinstance(semantic,dict) else semantic
-        concept = taxonomy.resolve(intent.raw_label)
+        concept = taxonomy.intent_target(intent, profile)
+        if not concept and architect_role(intent.raw_label) == 'ambiguous':
+            continue
         targets = [(concept, "direct")] if concept else []
         if concept and profile.related_roles_enabled:
             targets += [(taxonomy.by_id[r], "related") for r in concept.related if r in taxonomy.by_id]
@@ -155,7 +179,7 @@ def rank(employer: Employer, profile: Profile, taxonomy: Taxonomy, active_snapsh
             targets = [(None, "direct")]
         for target, group in targets:
             supported = []; spans_by_id={}
-            modifiers=distinctive_modifiers(intent,target,taxonomy) if group=='direct' else []
+            modifiers=distinctive_modifiers(intent,target,taxonomy) if group=='direct' and not (target and target.metadata.get('architect_family')) else []
             for c in claims:
                 if c.kind not in {'activity','function','historical_role'}:continue
                 spans=supporting_spans(c,intent,target,taxonomy)
@@ -165,19 +189,44 @@ def rank(employer: Employer, profile: Profile, taxonomy: Taxonomy, active_snapsh
                 if spans:supported.append(c);spans_by_id[c.id]=spans
             if not supported:continue
             roles = 1. if any(c.kind in {"function", "historical_role"} for c in supported) else .8
-            # Skills are only matched to source text, not assumed from an occupation.
-            explicit = list({key(s):s for s in [s.label for s in profile.skills] + profile.certifications}.values())
-            skill_hits = [s for s in explicit if any(contains(span, s) for c in supported for span in spans_by_id[c.id])]
-            task = min(1.,len(skill_hits)/3.)
-            prefs = .5
-            if employer.workplace_locations and profile.location.preferred_regions:
-                prefs = float(any(contains(loc, p) for loc in employer.workplace_locations for p in profile.location.preferred_regions))
-            preference_signals=[prefs]
+            # Read all compatible claims and keep the exact segment supporting each skill.
+            explicit = {}
+            for label in [s.label for s in profile.skills] + profile.certifications:
+                canonical, aliases = skill_identity(label)
+                explicit.setdefault(canonical, (label, aliases))
+            skill_spans = [(c, span) for c in supported for span in spans_by_id[c.id]]
+            # Standalone skills count only when the evidence explicitly links them
+            # to the matched occupation. Employer-wide skill lists are insufficient.
+            if target:
+                skill_spans.extend((c, c.text) for c in claims
+                                   if c.kind == 'skill' and target.id in c.concept_ids)
+            skills, missing = [], []
+            for label, aliases in explicit.values():
+                evidence = next((claim_reference(c, span) for c, span in skill_spans
+                                 if any(skill_present(span, alias) for alias in aliases)), None)
+                if evidence:
+                    skills.append({'label': label, **evidence})
+                else:
+                    missing.append(label)
+            skill_hits = [skill['label'] for skill in skills]
+            task = min(1., len(skill_hits) / 3.)
+            industry = [
+                {'label': label, **claim_reference(c, span)}
+                for label in profile.preferred_industries
+                for c in claims if c.kind == 'activity'
+                for span in role_segments(c)
+                if any(contains(span, phrase) for phrase in industry_phrases(label))
+            ]
+            industry = list({item['label']: item for item in reversed(industry)}.values())
+            # Neutral baseline for location. Area preference is applied as a sort bucket.
+            preference_signals = [.5]
             if profile.preferred_industries:
-                preference_signals.append(1. if any(contains(c.text,p) for c in claims if c.kind=="activity" for p in profile.preferred_industries) else .5)
-            if profile.career_stage in {"student","graduate"}:
-                preference_signals.append(1. if any(contains(span,p) for c in supported for span in spans_by_id[c.id] for p in ["graduate","trainee","junior","entry level"]) else .5)
-            prefs=sum(preference_signals)/len(preference_signals)
+                preference_signals.append(1. if industry else .5)
+            early_career = next((claim_reference(c, span) for c in supported for span in spans_by_id[c.id]
+                                 if any(contains(span, p) for p in ('graduate', 'trainee', 'junior', 'entry level'))), None)
+            if profile.career_stage in {'student', 'graduate'}:
+                preference_signals.append(1. if early_career else .5)
+            prefs = sum(preference_signals) / len(preference_signals)
             q = max(QUALITY[c.source_kind] for c in supported)
             action = 1. if any(c.kind in {"email", "careers"} for c in channels) else .6
             matching_jobs = [v for v in open_jobs(employer, at) if target and target.id in v.concept_ids]
@@ -193,10 +242,34 @@ def rank(employer: Employer, profile: Profile, taxonomy: Taxonomy, active_snapsh
             if group == "related":
                 reason = f"Related career: {target.label}. " + reason + f" This is an alternative to {intent.raw_label}, not the same role."
             features = {"role": roles, "task": task, "semantic": intent_semantic, "preference": prefs, "quality": q, "action": action, "verified_matching_vacancy": bool(matching_jobs), "intent": intent.raw_label}
+            features['location_status'] = location['status']
+            evidence = {
+                'version': EXPLANATION_VERSION,
+                'profession': {'label': target.label if target else intent.raw_label,
+                               'concept_id': target.id if target else None,
+                               'sources': [claim_reference(c, spans_by_id[c.id][0]) for c in supported]},
+                'location': location,
+                'skills': {'recorded': skills, 'not_recorded': missing},
+                'industry': industry,
+                'early_career': early_career,
+                'hiring_basis': chosen.kind,
+                'matching_vacancies': [{'title': v.title, 'url': v.url} for v in matching_jobs],
+            }
+            evidence_claim_ids = list(dict.fromkeys([c.id for c in supported] + [i['claim_id'] for i in industry + skills]))
             result = Ranked(employer.id, group, score, features,
-                {"text": reason, "claim_ids": [c.id for c in supported], "evidence_ids": [digest(["claim",employer.id,c.model_dump(mode="json")]) for c in supported], "sources": [{"url": c.source_url, "excerpt": c.excerpt, "matched_spans": spans_by_id[c.id][:2], "observed_at": c.observed_at.isoformat() if c.observed_at else None,"kind":c.source_kind} for c in supported[:3]], "skill_hits": skill_hits, "basis": chosen.kind}, employer.version)
+                {"text": reason, "claim_ids": evidence_claim_ids, "evidence_ids": [digest(["claim",employer.id,c.model_dump(mode="json")]) for c in supported], "sources": [{"url": c.source_url, "excerpt": c.excerpt, "matched_spans": spans_by_id[c.id][:2], "observed_at": c.observed_at.isoformat() if c.observed_at else None,"kind":c.source_kind} for c in supported[:3]], "skill_hits": skill_hits, "basis": chosen.kind, "evidence": evidence}, employer.version)
             if best is None or (group == "direct" and best.group == "related") or (group == best.group and score > best.score):
                 best = result
+    if best:
+        if diagnostics is not None:
+            diagnostics['profession_compatible'] += 1
+            diagnostics[location['status']] += 1
+        if profile.location.effective_mode == 'selected_area' and location['status'] == 'out_of_area':
+            return None
+        best.features['location_section'] = (
+            'unknown' if profile.location.effective_mode == 'selected_area' and location['status'] == 'unknown'
+            else 'main'
+        )
     return best
 
 

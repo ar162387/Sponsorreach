@@ -23,13 +23,13 @@ def test_payment_replay_and_duplicate_cycle(account):
     db,credits,uid,args=account
     assert not credits.record_verified_payment(**args)
     assert not credits.record_verified_payment(**{**args,'payment_id':str(uuid4())})
-    assert credits.summary(uid)['available']==800
+    assert credits.summary(uid)['available']==100
     assert len(db.rows("select * from sm_private.credit_ledger where user_id=%s",(uid,)))==1
 
 def test_concurrent_last_credit(account):
     db,credits,uid,args=account
     p=credits.summary(uid)['period']
-    with db.transaction() as c: entry(c,uid,p['id'],-799,'search',str(uuid4()))
+    with db.transaction() as c: entry(c,uid,p['id'],-99,'search',str(uuid4()))
     def reserve(_):
         try: credits.reserve(uid,str(uuid4()));return True
         except InsufficientCredits:return False
@@ -48,21 +48,21 @@ def test_settlement_and_retry(account):
     credits.reserve(uid,session)
     assert credits.settle(uid,session,True)
     assert not credits.settle(uid,session,True)
-    assert credits.summary(uid)['available']==799
+    assert credits.summary(uid)['available']==99
 
 def test_empty_releases_reservation(account):
     db,credits,uid,args=account
     sid=str(uuid4());credits.reserve(uid,sid)
-    assert credits.summary(uid)['available']==799
+    assert credits.summary(uid)['available']==99
     assert not credits.settle(uid,sid,False)
-    assert credits.summary(uid)['available']==800
+    assert credits.summary(uid)['available']==100
 
 def test_expired_work_does_not_charge_next_period(account):
     db,credits,uid,args=account
     sid=str(uuid4());credits.reserve(uid,sid)
     db.execute("update sm_private.credit_reservations set expires_at=now()-interval '1 second' where session_id=%s",(sid,))
     assert not credits.settle(uid,sid,True)
-    assert credits.summary(uid)['available']==800
+    assert credits.summary(uid)['available']==100
 
 def test_refund_removes_only_remaining_balance(account):
     db,credits,uid,args=account
@@ -78,7 +78,7 @@ def test_period_rollover_and_history(account):
     db.execute("update sm_private.billing_periods set starts_at=now()-interval '31 days',ends_at=now()-interval '1 day' where id=%s",(old['id'],))
     assert credits.summary(uid)['available']==0
     assert credits.record_verified_payment(**{**args,'payment_id':str(uuid4()),'starts_at':datetime.now(UTC),'ends_at':datetime.now(UTC)+timedelta(days=30)})
-    assert credits.summary(uid)['available']==800
+    assert credits.summary(uid)['available']==100
     with pytest.raises(ValueError):credits.usage(uid,str(uuid4()))
 
 def test_other_owner_cannot_reuse_reservation(account):
@@ -97,7 +97,7 @@ def test_opening_first_batch_settles_existing_reservation_once(account):
     credits.reserve(uid,session)
     with db.transaction() as c:assert credits.unlock_in(c,uid,session,0,True)
     assert not credits.settle(uid,session,True)
-    assert credits.summary(uid)['available']==799
+    assert credits.summary(uid)['available']==99
 
 def test_dispute_between_reservation_and_delivery_releases_without_spending(account):
     db,credits,uid,args=account

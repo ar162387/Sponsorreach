@@ -1,4 +1,4 @@
-> Current implementation progress: [MONTHLY_BILLING_STATUS.md](MONTHLY_BILLING_STATUS.md). The monthly offer and test product supersede the historical one-time proposal below. Integration remains incomplete.
+> Historical setup notes from 30 October 2026. For the €24.99/month EUR offer and product registration, see [Payments operations](PAYMENTS_OPERATIONS.md).
 
 # AgentaOS preparation for SponsorReach
 

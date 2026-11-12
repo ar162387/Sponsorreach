@@ -24,7 +24,7 @@ function BoardIcon({ name }: { name: string }) {
   if (src && !failed) return <Image src={src} width={16} height={16} alt="" unoptimized onError={() => setFailed(true)}/>;
   return name === 'Website' ? <Globe size={15}/> : name === 'LinkedIn' ? <Link2 size={15}/> : <BriefcaseBusiness size={15}/>;
 }
-export function Card({ employer, id, position, dashboard = false, compact = false, onBookmarkChange, onOpenShortlist }: { employer: EmployerCard; id: string; position: number; dashboard?: boolean; compact?: boolean; onOpenShortlist?: (id: string) => void; onBookmarkChange?: (saved: boolean) => void }) {
+export function Card({ employer, id, position, dashboard = false, compact = false, recent = false, onBookmarkChange, onOpenShortlist }: { employer: EmployerCard; id: string; position: number; dashboard?: boolean; compact?: boolean; recent?: boolean; onOpenShortlist?: (id: string) => void; onBookmarkChange?: (saved: boolean) => void }) {
   const [saved, setSaved] = useState(!!employer.bookmarked), [helpful, setHelpful] = useState(false), [error, setError] = useState('');
   useEffect(() => { if (dashboard) return; api('feedback', { method: 'POST', body: JSON.stringify({ session_id: id, employer_id: employer.employer_id, event: 'impression', position }) }).catch(() => {}); }, [id, employer.employer_id, position, dashboard]);
   async function feedback(event: string) {
@@ -42,6 +42,9 @@ export function Card({ employer, id, position, dashboard = false, compact = fals
       setSaved(result.bookmarked); if (result.bookmarked !== !previous) onBookmarkChange?.(result.bookmarked);
     } catch (e) { setSaved(previous); onBookmarkChange?.(previous); setError('Bookmark could not be saved. Your previous choice has been restored.'); } finally { setSaving(false); }
   }
+  const evidence = employer.explanation.evidence;
+  const companyAreas = evidence?.location.sources.filter(source=>source.type==='company_address');
+  const workplaces = evidence?.location.sources.filter(source=>source.type==='recorded_workplace');
   const direct = employer.channels.filter(c => c.kind === 'email' || c.kind === 'phone' || c.kind === 'address');
   const shownDirect = compact && !expanded ? direct.filter((channel, index) => channel.kind !== 'address' && direct.findIndex(item => item.kind === channel.kind) === index) : direct;
   const groups = new Map<string, Channel[]>();
@@ -60,10 +63,23 @@ export function Card({ employer, id, position, dashboard = false, compact = fals
     }
     return <details className="reach-menu" key={name}><summary className="reach-route"><BoardIcon name={name}/><span>{name}</span><span className="route-count">{items.length}</span><ChevronDown size={12}/></summary><div className="reach-menu-panel">{items.map((channel,index) => employer.is_demo || channel.linkable === false ? <span key={channel.value}>{title(channel,index)}</span> : <a href={channel.value} key={channel.value} target="_blank" rel="noreferrer" onClick={() => feedback('channel_click')}>{title(channel,index)}<ArrowUpRight size={13}/></a>)}</div></details>;
   }
-  return <article className={`employer-card reach-card ${compact ? 'compact-company' : ''} ${expanded ? 'expanded' : ''}`}>
+  return <article className={`employer-card reach-card ${compact ? 'compact-company' : ''} ${expanded ? 'expanded' : ''} ${recent ? 'recent-company' : ''}`}>
     <div className="reach-card-top"><span className="reach-licence"><ShieldCheck size={14}/>{employer.is_demo ? 'Sample sponsor' : 'Licensed sponsor'}</span><button className={`reach-save ${saved ? 'selected' : ''}`} disabled={saving} aria-busy={saving} aria-pressed={saved} aria-label={saved ? `Remove bookmark for ${employer.name}` : `Bookmark ${employer.name}`} onClick={toggleBookmark}>{saving ? <LoaderCircle size={17} className="spin"/> : <Bookmark size={18} fill={saved ? 'currentColor' : 'none'}/>} </button></div>
     <div className="reach-identity"><h3>{employer.name}</h3><p><MapPin size={13}/>{employer.town || 'UK'}</p></div>
     <div className="reach-fit"><span><Sparkles size={14}/>Why it fits</span><p>{employer.explanation.summary || employer.explanation.text.replace(/^Published business activity:\s*/, '').split(' This aligns with your interest in ')[0]}</p></div>
+    {evidence && <details className="reach-evidence">
+      <summary>Match evidence</summary>
+      <p>Profession: {evidence.profession.label}</p>
+      {companyAreas?.length ? <p>Company address: {companyAreas.map(source=>source.value+(source.matches_area&&evidence.location.status==='match'?' (selected area)':'')).join(', ')}.{!workplaces?.length && ' Workplace unconfirmed.'}</p> : null}
+      {workplaces?.length ? <p>Recorded workplace location: {workplaces.map(source=>source.value+(source.matches_area&&evidence.location.status==='match'?' (selected area)':'')).join(', ')}.</p> : null}
+      {evidence.location.status==='unknown' && <p>Company and workplace locations unknown.</p>}
+      {!!evidence.skills.recorded.length && <p>Skills recorded: {evidence.skills.recorded.map(skill=>skill.label).join(', ')}.</p>}
+      {!!evidence.skills.not_recorded.length && <p>Skills unconfirmed: {evidence.skills.not_recorded.join(', ')}.</p>}
+      {!!evidence.industry.length && <p>Preferred industry evidence: {evidence.industry.map(item=>item.text).join(', ')}.</p>}
+      <p>{evidence.early_career ? 'Early-career evidence: '+evidence.early_career.text+'.' : 'Early-career opportunities unconfirmed.'}</p>
+      <p>{evidence.hiring_basis==='historical_role' ? 'Match based on recorded role history.' : 'Match based on recorded professional activity.'} {evidence.matching_vacancies.length ? 'A current matching vacancy is listed below.' : 'Current matching vacancy unconfirmed.'}</p>
+      <ul>{evidence.profession.sources.map(source=><li key={source.claim_id}>{/^https?:\/\//i.test(source.source_url) ? <a href={source.source_url} target="_blank" rel="noreferrer">{source.text}</a> : source.text}</li>)}</ul>
+    </details>}
     {!!shownDirect.length && <div className="reach-contacts">{shownDirect.map(channel => {
       const href = channel.kind === 'address' ? '' : channel.kind === 'email' ? 'mailto:' + channel.value : 'tel:' + channel.value.replace(/[^+\d]/g, '');
       const content=<>{channel.kind === 'email' ? <Mail size={15}/> : channel.kind === 'address' ? <MapPin size={15}/> : <Phone size={15}/>}<span>{channel.value}</span>{channel.kind !== 'address' && <ArrowUpRight size={13}/>}</>;

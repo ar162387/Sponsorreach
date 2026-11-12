@@ -73,15 +73,15 @@ def test_dashboard_readonly_projections_and_filters(support):
     records=c.get('/api/admin/dashboard/members?q='+owner,headers=headers(staff)).json()
     assert any(str(r['id'])==owner for r in records['rows'])
     detail=c.get('/api/admin/dashboard/members/'+owner,headers=headers(staff)).json()
-    assert detail['balance']['signup_credits']==10
+    assert detail['balance']['signup_credits']==5
     credit_summary=c.get('/api/account/credit-summary',headers=headers(owner)).json()
-    assert credit_summary['available']==10 and 'periods' not in credit_summary
+    assert credit_summary['available']==5 and 'periods' not in credit_summary
     assert not detail['shortlists']
     assert 'email' not in detail['account']
     for query in ['offset=-1','environment=bogus','start=nope','q='+'x'*161]:
         assert c.get('/api/admin/dashboard/payments?'+query,headers=headers(staff)).status_code==422
     assert c.get('/api/admin/dashboard/members?q=nonexistent'+str(uuid4()),headers=headers(staff)).json()['rows']==[]
-    assert c.get('/api/admin/dashboard/credits?environment=signup&status=grant&q='+owner,headers=headers(staff)).json()['rows'][0]['delta']==10
+    assert c.get('/api/admin/dashboard/credits?environment=signup&status=grant&q='+owner,headers=headers(staff)).json()['rows'][0]['delta']==5
     assert c.get('/api/admin/dashboard/payments?environment=all',headers=headers(staff)).status_code==200
     c.post('/api/account/support',json={'subject':'Distinct ticket','message':'Question'},headers=headers(owner))
     tickets=c.get('/api/admin/dashboard/support?q=Distinct+ticket&status=open',headers=headers(staff)).json()

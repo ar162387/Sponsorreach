@@ -170,28 +170,42 @@ def import_register(db,path,url,publication_date,allow_large_change=False):
     date=datetime.fromisoformat(publication_date).date()
     if date>datetime.now(UTC).date():
         raise ValueError("Register publication date is in the future")
-    with Path(path).open(newline="",encoding="utf-8-sig") as f:
+    data=Path(path).read_bytes()
+    with io.TextIOWrapper(io.BytesIO(data),newline="",encoding="utf-8-sig") as f:
         reader=csv.DictReader(f)
         if not {"Organisation Name","Town/City","County","Type & Rating","Route"}.issubset(reader.fieldnames or []):
             raise ValueError("Official register columns are missing")
         rows=list(reader)
     if len(rows)<1000 or any(not clean(r["Organisation Name"]) or not clean(r["Route"]) for r in rows):
         raise ValueError("Incomplete register snapshot; previous snapshot remains active")
-    previous=db.one("select publication_date,metadata from sm.source_artifacts where kind='official_register' and metadata->>'active'='true' order by publication_date desc limit 1")
-    if previous and previous["publication_date"]>date:
-        raise ValueError("Cannot activate an older register snapshot")
-    if previous and len(rows)<previous["metadata"].get("row_count",0)*.9 and not allow_large_change:
-        raise ValueError("Register shrank by more than 10%; review before activating")
-    aid=artifact(db,path,"official_register","govuk:worker-register",url,publication_date,{"active":False,"row_count":len(rows),"filename":Path(path).name})
+    checksum=hashlib.sha256(data).hexdigest()
+    namespace="govuk:worker-register"
+    aid=digest([namespace,checksum])
+    result={"artifact_id":aid,"route_rows":len(rows),"skilled_worker_rows":sum(r["Route"]=="Skilled Worker" for r in rows)}
     with db.transaction() as c:
-        records=[(aid,str(i),key(r["Organisation Name"]),key(r["Town/City"]),r["Route"],r["Type & Rating"],Jsonb(r)) for i,r in enumerate(rows,1)]
-        with c.cursor() as cursor:
-            cursor.executemany("insert into sm.register_entries values(%s,%s,%s,%s,%s,%s,%s) on conflict do nothing",records)
+        c.execute("select pg_advisory_xact_lock(hashtext(%s))",(namespace,))
+        previous=c.execute("select id,publication_date,metadata from sm.source_artifacts where kind='official_register' and metadata->>'active'='true' order by publication_date desc limit 1").fetchone()
+        if previous and previous["publication_date"]>date:
+            raise ValueError("Cannot activate an older register snapshot")
+        if previous and len(rows)<previous["metadata"].get("row_count",0)*.9 and not allow_large_change:
+            raise ValueError("Register shrank by more than 10%; review before activating")
+        if previous and previous["id"]==aid:
+            return {**result,"changed":False}
+        c.execute("""insert into sm.source_artifacts(id,kind,namespace,url,sha256,publication_date,metadata)
+            values(%s,'official_register',%s,%s,%s,%s,%s) on conflict(id) do nothing""",
+            (aid,namespace,url,checksum,date,Jsonb({"active":False,"row_count":len(rows),"filename":Path(path).name})))
+        stored=c.execute("select publication_date from sm.source_artifacts where id=%s",(aid,)).fetchone()
+        if previous and stored["publication_date"]<previous["publication_date"]:
+            raise ValueError("Cannot reactivate an older register with a different publication date")
+        c.execute("create temporary table register_import (like sm.register_entries) on commit drop")
+        with c.cursor().copy("copy register_import from stdin") as copy:
+            for i,r in enumerate(rows,1):
+                copy.write_row((aid,str(i),key(r["Organisation Name"]),key(r["Town/City"]),r["Route"],r["Type & Rating"],Jsonb(r)))
+        c.execute("insert into sm.register_entries select * from register_import on conflict do nothing")
+        _publish_register_linkage(c,aid,stored["publication_date"],url)
         c.execute("update sm.source_artifacts set metadata=jsonb_set(metadata,'{active}','false') where kind='official_register' and id<>%s",(aid,))
         c.execute("update sm.source_artifacts set metadata=jsonb_set(metadata,'{active}','true') where id=%s",(aid,))
-        c.execute("update sm.search_documents d set sponsor_eligible=false from sm.employers e where e.id=d.employer_id and not e.is_demo")
-    reconcile_memberships(db)
-    return {"artifact_id":aid,"route_rows":len(rows),"skilled_worker_rows":sum(r["Route"]=="Skilled Worker" for r in rows)}
+    return {**result,"changed":True}
 
 
 REGISTER_LINKAGE_VERSION='register-linkage-2'
@@ -203,6 +217,72 @@ def register_identity_attributable(identity_status,source_county,register_counti
     known={key(clean(value)) for value in register_counties if clean(value)}
     county=key(clean(source_county))
     return identity_status=='accepted' and supported_identities==1 and len(known)<=1 and (not county or not known or county in known)
+
+
+def _register_decision(employer, entries, snapshot, duplicates):
+    counties={key(clean(r["register_payload"].get("County",""))) for r in entries}
+    attributable=register_identity_attributable(employer.identity_status,employer.county,counties,duplicates)
+    return {'policy_version':REGISTER_LINKAGE_VERSION,'snapshot_id':snapshot,
+            'record_keys':sorted(r['record_key'] for r in entries),'source_county':key(clean(employer.county)),
+            'known_register_counties':sorted(counties-{''}),'supported_identity_count':duplicates,
+            'attribution':'accepted' if attributable else 'unverified'}
+
+
+def _publish_register_linkage(c, snapshot, date, url):
+    from .ranking import sponsor_valid
+
+    # Keep the register pointer, employer payloads and retrieval flags in one
+    # commit. Ordinary searches can still read the previous published state.
+    c.execute("lock table sm.employers in share row exclusive mode")
+    rows=c.execute("""
+        with identities as (
+            select name_key,town_key,count(*) as supported
+            from sm.employers
+            where not is_demo and identity_status<>'quarantined'
+              and (identity_status='accepted' or company_number is not null)
+            group by name_key,town_key
+        )
+        select e.payload,coalesce(i.supported,0) as supported,
+            jsonb_agg(jsonb_build_object('record_key',r.record_key,'route',r.route,
+                'rating',r.rating,'register_payload',r.payload) order by r.record_key) as entries
+        from sm.employers e
+        join sm.register_entries r using(name_key,town_key)
+        left join identities i using(name_key,town_key)
+        where r.artifact_id=%s and not e.is_demo and e.town_key<>''
+        group by e.id,i.supported
+    """,(snapshot,)).fetchall()
+    c.execute("""create temporary table register_linkage (
+        employer_id uuid primary key, payload jsonb, version text, eligible boolean,
+        observation_id text, decision jsonb, name_key text, town_key text
+    ) on commit drop""")
+    with c.cursor().copy("copy register_linkage from stdin") as copy:
+        for row in rows:
+            employer=Employer.model_validate(row["payload"])
+            entries=row["entries"]
+            decision=_register_decision(employer,entries,snapshot,row["supported"])
+            employer.memberships=[
+                Membership(route=r["route"],rating=r["rating"],snapshot_date=date.isoformat(),
+                           snapshot_id=snapshot,attribution=decision["attribution"])
+                for r in entries
+            ]
+            employer.version=digest(employer.model_dump(exclude={"version"}))
+            copy.write_row((employer.id,Jsonb(employer.model_dump(mode="json")),employer.version,
+                            sponsor_valid(employer,snapshot),digest([employer.id,decision]),
+                            Jsonb(decision),key(employer.name),key(employer.town)))
+    c.execute("""update sm.employers e set payload=l.payload,version=l.version,updated_at=now()
+        from register_linkage l where e.id=l.employer_id and e.version<>l.version""")
+    c.execute("""update sm.search_documents d set sponsor_eligible=coalesce(l.eligible,false)
+        from sm.employers e left join register_linkage l on l.employer_id=e.id
+        where d.employer_id=e.id and not e.is_demo
+          and d.sponsor_eligible is distinct from coalesce(l.eligible,false)""")
+    c.execute("""insert into sm.sponsor_memberships
+        select l.employer_id,r.artifact_id,r.record_key,r.route,r.rating,l.decision->>'attribution',%s
+        from register_linkage l join sm.register_entries r using(name_key,town_key) where r.artifact_id=%s
+        on conflict(employer_id,artifact_id,record_key) do update set attribution=excluded.attribution""",(date,snapshot))
+    c.execute("""insert into sm.observations
+        select observation_id,employer_id,'sponsor_linkage',
+            case when decision->>'attribution'='accepted' then 'found' else 'inconclusive' end,
+            %s,now(),decision,%s from register_linkage on conflict(id) do nothing""",(url,REGISTER_LINKAGE_VERSION))
 
 
 def reconcile_memberships(db,employer_ids=None):
@@ -219,16 +299,15 @@ def reconcile_memberships(db,employer_ids=None):
     taxonomy=db.taxonomy()
     for id,entries in grouped.items():
         employer=Employer.model_validate(entries[0]["payload"])
-        counties={key(clean(r["register_payload"].get("County",""))) for r in entries}
         # An unresolved historical observation is not a second established
         # legal identity. Accepted peers and peers carrying company identifiers
         # remain conflicts; no rows, evidence or source keys are merged here.
         duplicates=db.one("select count(*) as n from sm.employers where name_key=%s and town_key=%s and not is_demo and identity_status<>'quarantined' and (identity_status='accepted' or company_number is not null)",(key(employer.name),key(employer.town)))["n"]
-        attributable=register_identity_attributable(employer.identity_status,employer.county,counties,duplicates)
-        employer.memberships=[Membership(route=r["route"],rating=r["rating"],snapshot_date=date,snapshot_id=snapshot,attribution="accepted" if attributable else "unverified") for r in entries]
+        decision=_register_decision(employer,entries,snapshot,duplicates)
+        employer.memberships=[Membership(route=r["route"],rating=r["rating"],snapshot_date=date,snapshot_id=snapshot,attribution=decision["attribution"]) for r in entries]
         db.save_employer(employer,taxonomy)
         with db.transaction() as c:
-            decision={'policy_version':REGISTER_LINKAGE_VERSION,'snapshot_id':snapshot,'record_keys':sorted(r['record_key'] for r in entries),'source_county':key(clean(employer.county)),'known_register_counties':sorted(counties-{''}),'supported_identity_count':duplicates,'attribution':'accepted' if attributable else 'unverified'}
+            attributable=decision["attribution"]=="accepted"
             c.execute("insert into sm.observations values(%s,%s,'sponsor_linkage',%s,%s,%s,%s,%s) on conflict(id) do nothing",(digest([id,decision]),id,'found' if attributable else 'inconclusive',artifact_row['url'],datetime.now(UTC),Jsonb(decision),REGISTER_LINKAGE_VERSION))
             for r,m in zip(entries,employer.memberships):
                 c.execute("insert into sm.sponsor_memberships values(%s,%s,%s,%s,%s,%s,%s) on conflict(employer_id,artifact_id,record_key) do update set attribution=excluded.attribution",(id,snapshot,r["record_key"],m.route,m.rating,m.attribution,date))

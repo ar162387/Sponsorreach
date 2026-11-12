@@ -6,7 +6,10 @@ export const dynamic='force-dynamic';
 async function handle(request:Request,ctx:{params:Promise<{action:string}>}){
  try{
   const {action}=await ctx.params;
-  if(request.method==='GET'&&action==='plans')return NextResponse.json({plans:await plans(),enabled:await salesAvailable()},{headers:{'Cache-Control':'no-store'}});
+  if(request.method==='GET'&&action==='plans'){
+   const catalogue=await plans();
+   return NextResponse.json({plans:catalogue,enabled:await salesAvailable(catalogue)},{headers:{'Cache-Control':'no-store'}});
+  }
   const user=await account();
   if(request.method==='GET'&&action==='records'){const stored=await context(user.id);return NextResponse.json({payments:stored.payments,refunds:stored.refunds,pending:stored.checkouts.some(c=>c.status==='pending')},{headers:{'Cache-Control':'private, no-store'}});}
   if(request.method==='GET'&&action==='receipt'){

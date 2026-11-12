@@ -227,13 +227,13 @@ class Database:
             c.execute("update sm.work_items set state=%s,error_code=%s,leased_until=null,available_at=now()+(%s * interval '1 second') where id=%s",("dead" if dead else "pending",code,min(300,2**item["attempts"]),item["id"]))
             if dead and item["kind"]=="match":
                 sid=item['payload']['session_id']
-                updated=c.execute("update sm_private.match_sessions set status='failed',error_code=%s where id=%s and revision=%s",(code,sid,item['payload'].get('revision',0))).rowcount
+                updated=c.execute("update sm_private.match_sessions set status=case when revision>0 and exists(select 1 from sm_private.match_results r where r.session_id=match_sessions.id) then 'ready' else 'failed' end,error_code=%s where id=%s and revision=%s",(code,sid,item['payload'].get('revision',0))).rowcount
                 if not updated:return
                 c.execute("update sm_private.credit_reservations set state='released' where session_id=%s and state='reserved'",(sid,))
                 c.execute('update sm_private.billing_accounts set preview_session=null where preview_session=%s',(sid,))
 
     def save_results(self, id, results, mode, versions, revision=None):
-        from .billing import Credits,lock_account,batch_value
+        from .billing import Credits,lock_account,batch_value,company_value,billing_enabled,credit_environment,COMPANIES_PER_CREDIT
         with self.transaction() as c:
             owner=c.execute('select user_id,status from sm_private.match_sessions where id=%s',(id,)).fetchone()
             if not owner:return results,mode,versions
@@ -241,13 +241,39 @@ class Database:
             previous=c.execute('select status,revision from sm_private.match_sessions where id=%s for update',(id,)).fetchone()
             if revision is not None and previous['revision']!=revision:return results,mode,versions
             if previous['status']=='ready':return results,mode,versions
-            c.execute("delete from sm_private.match_results where session_id=%s",(id,))
+            revision=previous['revision']
             unique={}
             for result in results:unique.setdefault(result.employer_id,result)
             results=list(unique.values())
-            for i,result in enumerate(results):
-                c.execute("insert into sm_private.match_results values(%s,%s,%s,%s,%s,%s,%s,%s)",(id,result.employer_id,i,result.group,result.score,Jsonb(result.features),Jsonb(result.explanation),result.employer_version))
-            if owner['user_id']:
+            offset=0
+            added_environment=credit_environment() if revision and owner['user_id'] and billing_enabled() else None
+            additions=results
+            if revision:
+                existing=c.execute("select employer_id,rank from sm_private.match_results where session_id=%s",(id,)).fetchall()
+                existing_ids={str(row['employer_id']) for row in existing}
+                additions=[result for result in results if str(result.employer_id) not in existing_ids]
+                last_rank=max((row['rank'] for row in existing),default=-1)
+                # Preserve existing batch boundaries and entitlements when appending.
+                offset=((last_rank+COMPANIES_PER_CREDIT)//COMPANIES_PER_CREDIT)*COMPANIES_PER_CREDIT
+                if owner['user_id']:
+                    real_ids=c.execute("select id from sm.employers where id=any(%s::uuid[]) and not is_demo",([r.employer_id for r in results[:COMPANIES_PER_CREDIT]+additions[:COMPANIES_PER_CREDIT]],)).fetchall()
+                    real={str(row['id']) for row in real_ids}
+                    sampled=[r.employer_id for r in results[:COMPANIES_PER_CREDIT] if str(r.employer_id) in real]
+                    # Price the leading batch before deduplication. Only additions can trigger delivery.
+                    value=company_value(c,owner['user_id'],id,sampled,include_current=True)
+                    delivered=any(str(r.employer_id) in real for r in additions[:COMPANIES_PER_CREDIT])
+                    charged=Credits(self).settle_in(c,owner['user_id'],id,delivered,chargeable=value['chargeable'],batch=offset//COMPANIES_PER_CREDIT,revision=revision)
+                    versions={**versions,'refinement_batch':offset//COMPANIES_PER_CREDIT if additions else None,'refinement_value':value,'refinement_charged':charged}
+            else:
+                c.execute("delete from sm_private.match_results where session_id=%s",(id,))
+            with c.cursor() as cursor:
+                cursor.executemany(
+                    "insert into sm_private.match_results values(%s,%s,%s,%s,%s,%s,%s,%s)",
+                    [(id,result.employer_id,i,result.group,result.score,
+                      Jsonb({**result.features,'added_revision':revision,'added_environment':added_environment} if revision else result.features),
+                      Jsonb(result.explanation),result.employer_version) for i,result in enumerate(additions,offset)],
+                )
+            if owner['user_id'] and not revision:
                 value=batch_value(c,owner['user_id'],id,0)
                 real=value['total']>0
                 Credits(self).settle_in(c,owner['user_id'],id,real,chargeable=value['chargeable'])

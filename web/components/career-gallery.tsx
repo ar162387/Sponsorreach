@@ -1,5 +1,8 @@
 import Image from 'next/image';
+import Link from 'next/link';
+import { ArrowUpRight, Fingerprint, Globe2, ShieldCheck } from 'lucide-react';
 import s from '@/app/career-gallery.module.css';
+
 const careers = [
   {
     "label": "Doctor",
@@ -122,11 +125,44 @@ const careers = [
     "image": "/careers/hotel-receptionist.webp"
   }
 ];
+
+const sourceItems = [
+  { icon: ShieldCheck, label: 'UK sponsor register' },
+  { icon: Fingerprint, label: 'Matched to your background' },
+  { icon: Globe2, label: 'Available employer contacts' },
+];
+
 export default function CareerGallery() {
- return <section className={s.gallery} aria-labelledby="career-gallery-title">
-  <div className={s.heading}><div><p className={s.eyebrow}>DIFFERENT SKILLS. A SHARED NEXT STEP.</p><h2 id="career-gallery-title">A place for <em>your kind of work.</em></h2><p>From practical trades to technical professions, start with the experience you already have.</p></div></div>
-  {[careers.slice(0,15),careers.slice(15)].map((row,index)=><div className={s.viewport} key={index} aria-label={index===0?'Professional career examples':'Practical and service career examples'} tabIndex={0}><div className={`${s.track} ${index===1?s.reverse:''}`}>
-   {[false,true].map(duplicate=><ul className={s.group} aria-hidden={duplicate||undefined} key={String(duplicate)}>{row.map(career=><li key={career.label}><figure className={s.card}><Image src={career.image} alt={duplicate?'':`${career.label}. Illustrative career portrait`} fill sizes="(max-width: 600px) 160px, 208px"/><figcaption>{career.label}</figcaption></figure></li>)}</ul>)}
-  </div></div>)}
- </section>;
+  return (
+    <section className={s.gallery} aria-label="Career examples and research sources">
+      {[careers.slice(0, 15), careers.slice(15)].map((row, index) => (
+        <div className={s.viewport} key={index} tabIndex={0} role="region" aria-label={index === 0 ? 'Professional career examples' : 'Practical and service career examples'}>
+          <div className={`${s.track} ${index === 1 ? s.reverse : ''}`}>
+            {[false, true].map(duplicate => (
+              <ul className={s.group} aria-hidden={duplicate || undefined} key={String(duplicate)}>
+                {row.map(career => (
+                  <li key={career.label}>
+                    <figure className={s.card}>
+                      <Image src={career.image} alt="" fill sizes="(max-width: 600px) 125px, 180px"/>
+                      <figcaption>{career.label}</figcaption>
+                    </figure>
+                  </li>
+                ))}
+              </ul>
+            ))}
+          </div>
+        </div>
+      ))}
+      <div className={s.ribbon}>
+        <div className={s.ribbonTrack}>
+          {[false, true].map(duplicate => (
+            <div className={s.ribbonGroup} key={String(duplicate)} aria-hidden={duplicate || undefined}>
+              {sourceItems.map(({icon: Icon, label}) => <span key={label}><Icon size={17}/> {label}</span>)}
+              <Link href="/our-data" tabIndex={duplicate ? -1 : undefined}>How we use sources <ArrowUpRight size={15}/></Link>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
 }

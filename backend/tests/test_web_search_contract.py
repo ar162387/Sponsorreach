@@ -75,14 +75,14 @@ def test_new_account_web_submission_queues_and_delivers_results(paid):
     sid = response.json()['session_id']
     # Retrying the same browser submission must not create another search or charge.
     assert client.post('/api/matches', json=body, headers=headers(uid)).json()['session_id'] == sid
-    assert Credits(db).summary(uid)['available'] == 9
+    assert Credits(db).summary(uid)['available'] == 4
     assert Credits(db).summary(uid)['reserved'] == 1
     db.save_results(sid, results, 'synthetic', {})
     response = client.get('/api/matches/' + sid, headers=headers(uid))
     assert response.status_code == 200
     assert response.json()['status'] == 'ready'
     assert response.json()['total_count'] > 0
-    assert Credits(db).summary(uid)['available'] == 9
+    assert Credits(db).summary(uid)['available'] == 4
     assert Credits(db).summary(uid)['reserved'] == 0
 
 
@@ -95,10 +95,10 @@ def test_reported_software_background_manager_role_returns_actionable_clarificat
     assert rejected.status_code==422
     assert rejected.json()['detail']['code']=='profile_needs_clarification'
     assert 'manager' in rejected.json()['detail']['normalization']['clarification']
-    assert Credits(db).summary(uid)['available']==10
+    assert Credits(db).summary(uid)['available']==5
     profile['role_intents'][0]['raw_label']='Software engineering manager'
     accepted=client.post('/api/matches',json=web_request(profile=profile),headers=headers(uid))
     assert accepted.status_code==202,accepted.text
     sid=accepted.json()['session_id'];db.save_results(sid,results[:20],'synthetic',{})
     assert client.get('/api/matches/'+sid,headers=headers(uid)).json()['status']=='ready'
-    assert Credits(db).summary(uid)['available']==9
+    assert Credits(db).summary(uid)['available']==4

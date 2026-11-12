@@ -1,66 +1,117 @@
-import CareerGallery from '@/components/career-gallery';
-import AgentaBadge from '@/components/agenta-badge';
-import Link from 'next/link';
 import Image from 'next/image';
-import LandingMotion from '@/components/landing-motion';
-import { ArrowUpRight, ArrowRight, Asterisk, GraduationCap, Code2, Building2, BriefcaseBusiness } from 'lucide-react';
+import Link from 'next/link';
+import {
+  ArrowUpRight, Bookmark, Building2, Check,
+  GraduationCap, Layers3, Plus, ShieldCheck, SlidersHorizontal,
+} from 'lucide-react';
+import ShortlistPreview from '@/components/shortlist-preview';
+import CareerGallery from '@/components/career-gallery';
+import WorkflowVisual from '@/components/workflow-visual';
 import s from '@/app/landing.module.css';
 
-const questions = [
-  ['What does SponsorReach help me do?', 'Research UK licensed sponsor companies whose work connects with your background. Your shortlist brings together company context, reasons for relevance and available contact or application routes. You decide which companies to investigate and approach.'],
-  ['Why not just use the public register?', 'The register identifies licensed organisations. SponsorReach adds professional relevance, supporting company context and available ways to approach them, organised around the background you provide.'],
-  ['Does a licence mean a company will sponsor me?', 'No. A licence does not establish a current vacancy, willingness to sponsor your role or an offer. Check each opportunity directly with the employer.'],
-  ['Will I get a contact for every company?', 'Available routes vary websites, careers pages, published emails, phone numbers and other business links. Relevant employee contacts appear only when supported by the available information. A contact does not guarantee a reply.'],
-  ['What can I access right now?', 'Start with 10 free credits when you sign up. Subscribe when you need more.'],
+const workflow = [
+  { icon: SlidersHorizontal, title: 'Tell us what you do', copy: 'Share your degree, skills and the kind of work you want to pursue.' },
+  { icon: Building2, title: 'Find relevant companies', copy: 'See which UK licensed sponsors do work that overlaps with your background.' },
+  { icon: Bookmark, title: 'Make a shortlist', copy: 'Save the companies worth a closer look and check their available contact or application routes.' },
 ];
 
-export const dynamic="force-dynamic";
-export default async function MarketingHome() {
-  const faqs=questions.map(([q,a])=>[q,q==="What can I access right now?"?"Sign up and verify your email to receive 10 free research credits. Each search or new results batch uses one credit when results are delivered. Once your free credits are used, subscribe for US$24.99 per month for 800 credits. Failed or empty searches and reopening saved results use no credits.":a]);
-  return <div className={s.landing} data-atlas-landing="true">
-    <header className={s.masthead}>
-      <Link className={s.identity} href="/" aria-label="SponsorReach UK home"><Image src="/brand/sr-mark.png" alt="" width={48} height={28} priority className={s.logoMark}/><span>SponsorReach<sup>UK</sup></span></Link>
-      <nav aria-label="Landing navigation"><a href="#how-it-works">How it works</a><a href="#pricing">Pricing</a><a href="#faq">FAQs</a><Link href="/account">My shortlists <ArrowUpRight size={14}/></Link></nav>
-    </header>
+const questions = [
+  ['Who is SponsorReach for?', 'SponsorReach helps international graduates and professionals research UK licensed sponsor companies based on their skills, experience and career interests.'],
+  ['Where does the company information come from?', 'We use sponsor-register information and publicly available company information. A shortlist brings together the company’s work, why it may be relevant to you and available ways to approach it.'],
+  ['Does a licence mean a company will sponsor me?', 'A sponsor licence is a starting point for research. Ask the employer about current vacancies and whether they are willing to sponsor the specific role.'],
+  ['What contact details will I see?', 'Depending on the company, you may find a website, careers page, published business email, phone number or relevant employee contact supported by the available information.'],
+  ['How are research credits used?', 'One credit unlocks a batch of up to 5 companies. Reopening saved results, failed or empty searches, and batches where more than half the companies are already unlocked cost nothing. You can see the credit cost before you continue.'],
+  ['What happens to unused credits?', 'Your 5 signup credits are issued once after email verification and have no scheduled expiry. Monthly credits reset each paid billing period. Unused monthly credits expire at the end of that period.'],
+];
 
-    <section className={s.opening} aria-labelledby="landing-title">
-      <h1 id="landing-title" data-atlas-reveal data-atlas-delay="60">Connect with UK licensed sponsor companies<br/>that fit <em>your skills.</em></h1>
-      <p className={s.intro} data-atlas-reveal data-atlas-delay="120">Research UK licensed sponsor companies relevant to your degree, skills and experience. Built for international graduates and professionals who want a focused employer shortlist, company evidence and practical ways to make an approach.</p>
-      <Link href="/match" className={s.primary}>Start for free <ArrowUpRight size={20}/></Link>
-      <LandingMotion/>
-      <span className={s.bubbleFour} aria-hidden="true"/><span className={s.bubbleFive} aria-hidden="true"/><span className={s.bubbleSix} aria-hidden="true"/><span className={s.bubbleSeven} aria-hidden="true"/><span className={s.bubbleEight} aria-hidden="true"/><span className={s.bubbleOne} aria-hidden="true"/><span className={s.bubbleTwo} aria-hidden="true"/><span className={s.bubbleThree} aria-hidden="true"/><span className={s.orbitOne} aria-hidden="true"/><span className={s.orbitTwo} aria-hidden="true"/>
-    </section>
+export default function MarketingHome() {
+  return (
+    <div className={s.landing}>
+      <section className={s.hero} aria-labelledby="landing-title">
+        <div className={s.heroCopy}>
+          <p className={s.eyebrow}><i/> UK SPONSOR RESEARCH</p>
+          <h1 id="landing-title">Find UK<br/> sponsors that<br/> <span>fit your skills.</span></h1>
+          <p className={s.heroIntro}>Build a shortlist of licensed employers based on your degree, skills and experience. See why each one fits and where to start your research.</p>
+          <div className={s.heroActions}>
+            <Link href="/match" className={s.primary}>Start for free <ArrowUpRight size={19}/></Link>
+          </div>
+          <p className={s.freeNote}><Check size={15}/> 5 free credits when you verify your email</p>
+        </div>
+        <ShortlistPreview/>
+      </section>
 
-    <section className={s.thread} id="how-it-works" aria-labelledby="thread-title">
-      <div className={s.chapter}><span>01 / THE APPROACH</span><span>A SHORTER PATH THROUGH THE NOISE</span></div>
-      <h2 id="thread-title" data-atlas-reveal>A list gives you names.<br/><em>Context gives you direction.</em></h2>
-      <p className={s.sectionIntro}>Start with what you know. Explore where it could fit.<br/>Then decide who is worth your time.</p>
-      <div className={s.fitGraphic} aria-label="From your background to employer research and your career goal"><div className={s.profileSketch}><GraduationCap size={25}/><span>YOUR STARTING POINT</span><strong>A direction of your own</strong><p>Your degree, skills and the work you want to do.</p><div><span><Code2 size={15}/>Your skills</span><span>Your experience</span><span>Your interests</span></div></div><div className={s.fitPath} aria-hidden="true"><span/><ArrowRight size={28}/><span/></div><div className={s.companySketch}><span>YOUR RESEARCH</span><div><Building2 size={23}/><span><strong>Relevant companies</strong><small>What each business does and why it may fit your background.</small></span></div><div><BriefcaseBusiness size={23}/><span><strong>A focused shortlist</strong><small>Company websites, careers pages and published business contacts.</small></span></div><small>Choose who to research and approach.</small></div><div className={s.fitPath} aria-hidden="true"><span/><ArrowRight size={28}/><span/></div><div className={s.outcomeSketch}><ArrowUpRight size={29}/><span>THE GOAL</span><strong>Your next career chapter</strong><p>Work toward a sponsored role that fits your skills and ambitions.</p></div></div>
-    </section>
+      <CareerGallery/>
 
-    <section className={s.fieldnotes} aria-labelledby="evidence-title"><div className={s.chapter}><span>RESEARCH YOU CAN INTERPRET</span><span>FROM BACKGROUND TO NEXT STEP</span></div><h2 id="evidence-title">See what each signal<br/><em>actually tells you.</em></h2><div className={s.signalGrid}><article><span className={s.annotation}>01 / REGISTER</span><h3>Licensed sponsor</h3><p>Use sponsor-register information and its source date as a starting point. A licence does not confirm a current sponsored vacancy.</p></article><article><span className={s.annotation}>02 / RELEVANCE</span><h3>Professional fit</h3><p>Company activities connect with the background you provide. A recommendation is a research lead, not an assessment of visa eligibility.</p></article><article><span className={s.annotation}>03 / ACTION</span><h3>Verify and approach</h3><p>Check the employer’s careers page and current requirements. Apply directly or make a relevant approach through an available business route.</p></article></div><p><Link href="/our-data">Read about our sources and limitations ↗</Link></p></section>
+      <section className={s.workflow} id="how-it-works" aria-labelledby="workflow-title">
+        <div className={s.sectionHead}>
+          <div><p className={s.eyebrow}><i/> HOW IT WORKS</p><h2 id="workflow-title">From your skills<br/> to a shortlist.</h2></div>
+          <p>Start with the work you know. Find companies that do it, then decide which ones are worth approaching.</p>
+        </div>
+        <ol className={s.steps}>
+          {workflow.map(({icon: Icon, title, copy}, index) => <li key={title}>
+            <div className={s.stepCopy}>
+              <div className={s.stepTop}><span><Icon size={25} strokeWidth={1.65}/></span><span className={s.stepCount}>0{index + 1}</span></div>
+              <h3>{title}</h3><p>{copy}</p>
+            </div>
+            <WorkflowVisual step={index}/>
+          </li>)}
+        </ol>
+      </section>
 
-    <section className={s.fieldnotes} aria-labelledby="notes-title">
-      <div className={s.chapter}><span>02 / INSIDE YOUR SHORTLIST</span><span>INFORMATION WITH A PURPOSE</span></div>
-      <div className={s.notesHeading} data-atlas-reveal><h2 id="notes-title">Know a little more.<br/><em>Approach a little better.</em></h2><p>Something more useful than a company name.<br/>Something you can take your next step with.</p></div>
-      <div className={s.indexRow} data-atlas-reveal="row"><span className={s.indexNumber} data-atlas-accent="number">I.</span><h3>The work behind the name</h3><p>Company context to help you understand what a business does and where your interests could connect.</p><span className={s.marginNote}>COMPANY CONTEXT</span></div>
-      <div className={s.indexRow} data-atlas-reveal="row"><span className={s.indexNumber} data-atlas-accent="number">II.</span><h3>A reason to consider it</h3><p>See why company activities may fit your background. Research with a rationale, rather than a list to work through blindly.</p><span className={s.marginNote}>PROFESSIONAL RELEVANCE</span></div>
-      <div className={s.indexRow} data-atlas-reveal="row"><span className={s.indexNumber} data-atlas-accent="number">III.</span><h3>A place to begin</h3><p>Available websites, careers pages and published business contacts. Relevant employee contacts appear when supported by the information available.</p><span className={s.marginNote}>AVAILABLE ROUTES</span></div>
-      <div className={s.evidenceNote} data-atlas-reveal><Asterisk size={28}/><p><strong>A licence is a starting point.</strong> Sponsor-register information and its source date help you research a company. They do not confirm an open role or willingness to sponsor you.</p></div>
-    </section>
+      <section className={s.evidence} aria-labelledby="evidence-title">
+        <div className={s.evidenceInner}>
+          <div className={s.evidenceImage}>
+            <Image src="/careers/architect.webp" alt="" fill sizes="(max-width: 720px) 90vw, 48vw"/>
+            <span className={s.imageLabel}><GraduationCap size={17}/> For international graduates and professionals</span>
+          </div>
+          <div className={s.evidenceCopy}>
+            <p className={s.eyebrow}><i/> INSIDE YOUR SHORTLIST</p>
+            <h2 id="evidence-title">Know who to research next.</h2>
+            <div className={s.evidenceList}>
+              <div><Layers3 size={21}/><p><strong>Company context</strong>What the employer does and where your skills might fit.</p></div>
+              <div><ShieldCheck size={21}/><p><strong>Sponsor-register evidence</strong>Licence information and its source date to support your checks.</p></div>
+              <div><ArrowUpRight size={21}/><p><strong>Ways to approach</strong>Available careers pages, company websites and published contacts.</p></div>
+            </div>
+            <Link href="/our-data" className={s.textLink}>Explore our sources <ArrowUpRight size={16}/></Link>
+          </div>
+        </div>
+      </section>
 
-    <CareerGallery/>
+      <section className={s.pricing} id="pricing" aria-labelledby="pricing-title">
+        <div className={s.pricingHead}>
+          <p className={s.eyebrow}><i/> PRICING</p>
+          <h2 id="pricing-title">Start free. Go further when you need to.</h2>
+          <p>One research credit unlocks up to 5 companies.</p>
+        </div>
+        <div className={s.plans}>
+          <article className={s.freePlan}>
+            <h3>Free signup credits</h3>
+            <p className={s.amount}>€0</p>
+            <ul><li><Check size={17}/> 5 free credits after email verification</li><li><Check size={17}/> Company context and reasons for relevance</li><li><Check size={17}/> Available application and contact routes</li></ul>
+            <Link href="/match" className={s.outlineButton}>Start for free <ArrowUpRight size={17}/></Link>
+          </article>
+          <article className={s.paidPlan}>
+            <h3>SponsorReach Monthly</h3>
+            <p className={s.amount}>€24.99 <span>/ month</span></p>
+            <ul><li><Check size={17}/> 100 research credits each paid month</li><li><Check size={17}/> The same research and contact features</li><li><Check size={17}/> Manage renewal from your account</li></ul>
+            <Link href="/account/billing" className={s.primary}>View subscription <ArrowUpRight size={17}/></Link>
+          </article>
+        </div>
+        <Link href="/refunds" className={s.policyLink}>Payment, cancellation and refund details <ArrowUpRight size={15}/></Link>
+      </section>
 
-    <section className={s.fieldnotes} id="pricing" aria-labelledby="pricing-title">
-      <div className={s.chapter}><span>03 / SIMPLE MONTHLY PRICING</span><span>ONE SUBSCRIPTION</span></div>
-      <div className={s.priceCard}><div><p className={s.annotation}>SPONSORREACH MONTHLY</p><h2 id="pricing-title">A focused search.<br/><em>One clear price.</em></h2><p className={s.price}>US$24.99 <span>/ month</span></p><p>800 research credits each paid month.</p><Link href="/account/billing" className={s.primary}>View subscription <ArrowUpRight size={20}/></Link></div><div><h3>What your subscription includes</h3><ul><li>Employer research matched to your professional background</li><li>Company context and reasons for relevance</li><li>Available careers pages and published business contacts</li><li>Saved shortlists, billing history and receipts</li></ul><Link href="/refunds">Payment, cancellation and refund details ↗</Link></div></div>
-    </section>
-    <section className={s.questions} id="faq" aria-labelledby="faq-title">
-      <div className={s.chapter}><span>03 / BEFORE YOU BEGIN</span><span>A FEW STRAIGHT ANSWERS</span></div>
-      <div className={s.questionLayout}><div><h2 id="faq-title" data-atlas-reveal>Good questions.<br/><em>Clear answers.</em></h2><p>Your shortlist supports your research.<br/>The next decision stays with you.</p><Link href="/terms">Read the terms <ArrowUpRight size={16}/></Link></div><div className={s.accordion}>{faqs.map(([q,a],i)=><details key={q} data-atlas-reveal="row"><summary><span className={s.questionNumber}>0{i+1}</span>{q}<span className={s.plus} aria-hidden="true">+</span></summary><p>{a}</p></details>)}</div></div>
-    </section>
+      <section className={s.faq} id="faq" aria-labelledby="faq-title">
+        <div><p className={s.eyebrow}><i/> FAQS</p><h2 id="faq-title">Before you start.</h2><Link href="/contact" className={s.textLink}>Contact us <ArrowUpRight size={16}/></Link></div>
+        <div className={s.accordion}>
+          {questions.map(([question, answer]) => <details key={question}><summary>{question}<Plus size={19}/></summary><p>{answer}</p></details>)}
+        </div>
+      </section>
 
-    <section className={s.invitation} aria-labelledby="invitation-title"><span className={s.invitationStar} data-atlas-reveal="turn" aria-hidden="true"><Asterisk size={70} strokeWidth={1}/></span><p className={s.kicker}>FOR THE WORK YOU WANT TO DO NEXT</p><h2 id="invitation-title" data-atlas-reveal>There’s a company<br/>worth <em>looking into.</em></h2><p>Start with your skills. See where the research takes you.</p><Link href="/match" className={s.primary}>Start for free <ArrowUpRight size={20}/></Link><small>10 free credits to get started. More research when you need it.</small></section>
-    <footer className={s.footer}><div className={s.footerTop}><Link href="/" className={s.footerName}>SponsorReach<span>UK</span></Link><p>Useful research.<br/>An approach of your own.</p></div><div className={s.footerContact}><nav aria-label="Social media"><a href="https://www.instagram.com/sponsorreach/" target="_blank" rel="noopener noreferrer">Instagram <ArrowUpRight size={14}/></a><a href="https://www.linkedin.com/company/145280669/" target="_blank" rel="noopener noreferrer">LinkedIn <ArrowUpRight size={14}/></a></nav><p>For business enquiries: <a href="mailto:info@sponsorreach.uk">info@sponsorreach.uk</a></p></div><div className={s.footerBottom}><p>Company research for international graduates.<br/>No employment, response or sponsorship outcome is guaranteed.</p><nav aria-label="Footer navigation"><Link href="/account">My shortlists</Link><Link href="/contact">Contact</Link><Link href="/terms">Terms</Link><Link href="/privacy">Privacy</Link><Link href="/our-data">Our data</Link><Link href="/disclaimer">Disclaimer</Link><Link href="/refunds">Payments &amp; refunds</Link></nav></div><div style={{marginTop:24}}><AgentaBadge/></div></footer>
-  </div>;
+      <section className={s.closing} aria-labelledby="closing-title">
+        <div className={s.closingRings} aria-hidden="true"><span/><span/><span/></div>
+        <div><h2 id="closing-title">Who could you<br/> work for next?</h2><p>Start with your skills and see where they could take you.</p></div>
+        <Link href="/match" className={s.darkButton}>Build my shortlist <ArrowUpRight size={20}/></Link>
+      </section>
+    </div>
+  );
 }
