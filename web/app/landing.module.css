@@ -375,7 +375,7 @@
   margin: 0 0 17px; color: #426446; font-size: 11px; font-weight: 800; letter-spacing: .13em; line-height: 1.4;
 }
 .publicMain :global(.eyebrow)::before { content: ''; width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: #68853c; }
-.publicMain :global(.legal h1), .publicMain :global(.guest-account h1), .publicMain :global(.page-recovery h1) {
+.publicMain :global(.legal h1), .publicMain :global(.page-recovery h1) {
   font: 800 clamp(35px, 5.1vw, 68px)/1.03 'Manrope', sans-serif;
   letter-spacing: -.065em;
   margin: 0 0 23px;
@@ -389,11 +389,10 @@
 }
 .publicMain :global(.legal p:not(.eyebrow)), .publicMain :global(.legal li) { color: var(--muted-ink); font-size: 15px; line-height: 1.75; }
 .publicMain :global(.legal a) { color: #345c38; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; }
-.publicMain :global(.guest-account), .publicMain :global(.page-recovery) {
+.publicMain :global(.page-recovery) {
   width: min(860px, 100% - 36px);
   min-height: 52vh; padding: clamp(40px, 7vw, 92px) 0;
 }
-.publicMain :global(.guest-account > .muted) { color: var(--muted-ink); }
 .publicMain :global(.signin-panel) { border: 1px solid var(--line-ink); background: #eff4e6; border-radius: 12px; }
 .publicMain :global(.button) { border-color: #c4e44d; background: var(--acid); color: var(--forest); font-weight: 750; }
 .publicMain :global(.button:hover) { background: #ecff9f; }

@@ -14,7 +14,6 @@ export default function MemberSettings({ providers, config, pending, signin, clo
   const [intent, setIntent] = useState<Provider | 'close'>();
   const [connect, setConnect] = useState(false);
   const google = !providers.includes('google') ? config.googleClientId : '';
-  const facebook = !providers.includes('facebook') && config.facebook;
   const notices: Record<string, string> = {
     connected: 'Your sign-in method is connected.',
     disconnected: 'Your sign-in method is disconnected.',
@@ -35,8 +34,8 @@ export default function MemberSettings({ providers, config, pending, signin, clo
           <button type="button" className="text-button" onClick={() => setIntent(provider)}>Disconnect</button>
         </li>)}
       </ul>
-      {pending ? <VerifySocial {...pending} linking/> : (google || facebook) && (
-        connect ? <SocialButtons googleClientId={google} facebook={facebook} linking/>
+      {pending ? <VerifySocial {...pending} linking/> : google && (
+        connect ? <SocialButtons googleClientId={google} linking/>
           : <button type="button" className="button secondary small" onClick={() => setConnect(true)}>Connect a sign-in method</button>
       )}
       {intent && intent !== 'close' && <VerificationForm key={intent} linking title="Disconnect sign-in method"

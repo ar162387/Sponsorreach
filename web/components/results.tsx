@@ -1,4 +1,5 @@
 'use client';
+import { SigninLink, useSigninDialogOpen } from '@/components/signin-dialog';
 import EmailSignin from './email-signin';
 import { SocialButtons, type SocialConfig } from './social-signin';
 import {refreshCredits} from './dashboard-shell';
@@ -20,6 +21,7 @@ export default function Results({ id, embedded = false, title, cache, externalSt
   onSessionChange?: (session: MatchSession) => void;
   onBookmarkChange?: (employer: EmployerCard, saved: boolean) => void;
 }) {
+  const signinDialogOpen = useSigninDialogOpen();
   const cached = cache?.get(id);
   const [session, setSession] = useState<MatchSession | null>(cached?.session || null), [cards, setCards] = useState<EmployerCard[]>(cached?.cards || []), [error, setError] = useState(''), [modal, setModal] = useState(false), [busy, setBusy] = useState(false), [cursor, setCursor] = useState<number | null>(cached?.cursor ?? null);
   const [draft,setDraft]=useState<Profile>(),[choices,setChoices]=useState<ProfessionChoice[]>([]);
@@ -132,7 +134,7 @@ export default function Results({ id, embedded = false, title, cache, externalSt
     if(newRun||knownStatus==='queued'||knownStatus==='processing')return <PersonalizedLoader context={pendingContext} error="" embedded={embedded}/>;
     return embedded ? <section className="embedded-results"><header className="research-detail-heading"><h2>{title||'Shortlist'}</h2></header><DataRows label="companies"/></section> : <ResultsSkeleton/>;
   }
-  if (session.verification_required) return <section className="loader-page shell"><Mail size={48}/><p className="eyebrow">ONE LAST STEP</p><h1>Confirm your <em>email.</em></h1><p className="muted">Enter the code we emailed you to open your research.</p>{wrongSignInEmail && <p className="notice" role="status">That sign-in uses a different email from this shortlist. Try the original email or enter the code below.</p>}<EmailSignin key={id} sessionId={id} initialSent/>{social && <SocialButtons {...social} shortlist={id}/>}<Link className="text-button" href="/account">Use another account</Link></section>;
+  if (session.verification_required) return <section className="loader-page shell"><Mail size={48}/><p className="eyebrow">ONE LAST STEP</p><h1>Confirm your <em>email.</em></h1><p className="muted">Enter the code we emailed you to open your research.</p>{wrongSignInEmail && <p className="notice" role="status">That sign-in uses a different email from this shortlist. Try the original email or enter the code below.</p>}<EmailSignin key={id} sessionId={id} initialSent/>{social && !signinDialogOpen && <SocialButtons {...social} shortlist={id}/>}<SigninLink className="text-button">Use another account</SigninLink></section>;
   if (['queued','processing'].includes(session.status)) return <PersonalizedLoader stage={session.stage} context={session.loading_context || pendingContext} error={error} embedded={embedded}/>;
   const filters = embedded&&!newRun&&session.profile&&<ShortlistFilters key={session.revision} profile={draft||session.profile} creditMode={session.credit_mode} onRefine={refresh} choices={choices} error={error}/>;
   if (!ready) return <section className="embedded-results"><header className="research-detail-heading"><h2>{session.status==='failed'?'Search couldn’t finish':'Your profile needs more detail'}</h2></header>{filters}<p className="muted">No credit was used for this search.</p>{onStartOver?<button className="button" onClick={onStartOver}>Start a new search</button>:!embedded&&<Link className="button" href={'/match?shortlist='+id}>Retry this shortlist</Link>}</section>;

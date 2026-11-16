@@ -1,0 +1,97 @@
+.dialog {
+  width: min(444px, calc(100% - 32px));
+  max-height: calc(100dvh - 32px);
+  margin: auto;
+  padding: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid #d8ded2;
+  border-radius: 16px;
+  background: #fffef9;
+  color: #14251e;
+  box-shadow: 0 24px 85px #14251e40;
+  font: 400 15px/1.5 'DM Sans', sans-serif;
+}
+
+.dialog::backdrop { background: #14251e85; backdrop-filter: blur(3px); }
+:global(html):has(.dialog[open]) { overflow: hidden; }
+
+.content { position: relative; padding: clamp(22px, 6vw, 40px); }
+.brand {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: 10px;
+  background: #dcfa62;
+}
+.close {
+  position: absolute;
+  inset: 12px 12px auto auto;
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #43564a;
+}
+.close:hover { background: #edf1e7; }
+.dialog :is(a, button, input):focus-visible { outline: 2px solid #426541; outline-offset: 3px; }
+.content > h2 {
+  margin: 18px 0 6px;
+  color: inherit;
+  font: 800 clamp(25px, 5vw, 30px)/1.16 'Manrope', sans-serif;
+  letter-spacing: -.04em;
+}
+.description { margin: 0 0 24px; color: #4b5a50; }
+.notice {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid #d8ded2;
+  border-radius: 8px;
+  background: #f1f4eb;
+  font-size: 14px;
+}
+.help { display: inline-block; margin-bottom: 14px; text-decoration: underline; }
+.dialog .content :global(.signin-panel) {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.dialog .content :global(.signin-panel) :is(p, label) { color: inherit; font-size: 14px; overflow-wrap: anywhere; }
+.dialog .content :global(.signin-panel) label { margin: 0; }
+.dialog .content :global(.signin-panel) input {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  min-height: 46px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #899a8a;
+  border-radius: 8px;
+  background: #fff;
+  color: #14251e;
+  font: inherit;
+}
+.dialog .content :global(.signin-panel .button) {
+  justify-content: center;
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid #14251e;
+  border-radius: 8px;
+  background: #14251e;
+  color: #fffef9;
+  font: 700 15px/1.3 'DM Sans', sans-serif;
+}
+.dialog .content :global(.signin-panel .button):hover:not(:disabled) { background: #32483a; }
+.dialog .content :global(.signin-panel .text-button) { justify-self: start; width: fit-content; text-align: left; }
+.divider { display: flex; align-items: center; gap: 12px; margin: 17px 0; color: #4b5a50; font-size: 13px; }
+.divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: #d8ded2; }
+.dialog :global(.social-signin) { width: 100%; margin: 0; }
+.dialog :global(.google-signin) { display: grid; justify-items: center; min-height: 40px; }

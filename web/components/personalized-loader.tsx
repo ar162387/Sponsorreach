@@ -1,7 +1,7 @@
 'use client';
+import { SigninLink } from '@/components/signin-dialog';
 import { useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
-import Link from '@/components/navigation-link';
 import { ArrowRight, Pause, Play } from 'lucide-react';
 import type { LoadingContext } from '@/lib/types';
 import { loadingMessages, captionDuration } from '@/lib/personalization';
@@ -33,7 +33,7 @@ export default function PersonalizedLoader({ stage, context, error, embedded=fal
       <div className="loader-steps"><span className="status-dot"/>Matching companies to your search.</div>
       <button className="loader-pause text-button" aria-pressed={paused} onClick={() => setPaused(value => !value)}>{paused ? <Play size={13}/> : <Pause size={13}/>}{paused ? 'Resume messages' : 'Pause messages'}</button>
     </>}
-    {error && <Link href="/match" className="button">Start a new sponsor search<ArrowRight size={18}/></Link>}
-    {!embedded&&<Link href="/account/shortlists" className="text-button">My sponsor shortlists</Link>}
+    {error && <SigninLink destination="/account/search" className="button">Start a new sponsor search<ArrowRight size={18}/></SigninLink>}
+    {!embedded&&<SigninLink destination="/account/shortlists" className="text-button">My sponsor shortlists</SigninLink>}
   </section>;
 }

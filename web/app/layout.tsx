@@ -1,3 +1,5 @@
+import { SigninProvider } from '@/components/signin-dialog';
+import { socialConfig } from '@/lib/member-access';
 import SiteChrome, { SiteMain } from '@/components/site-chrome';
 import { PublicFooter, PublicHeader } from '@/components/public-chrome';
 import type { Metadata } from 'next';
@@ -19,8 +21,10 @@ export default async function Layout({ children }: { children: React.ReactNode }
   const user=await verifiedUser();
   return <html lang="en-GB" data-scroll-behavior="smooth"><body className={user?'authenticated-app':undefined}>
     <a className="skip" href="#main">Skip to content</a>
-    <SiteChrome signedIn={!!user}><PublicHeader signedIn={!!user}/></SiteChrome>
-    <SiteMain signedIn={!!user}>{children}</SiteMain>
-    <SiteChrome signedIn={!!user}><PublicFooter signedIn={!!user}/></SiteChrome>
+    <SigninProvider signedIn={!!user} emailAvailable={!!(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY)} googleClientId={user ? '' : socialConfig().googleClientId}>
+      <SiteChrome signedIn={!!user}><PublicHeader signedIn={!!user}/></SiteChrome>
+      <SiteMain signedIn={!!user}>{children}</SiteMain>
+      <SiteChrome signedIn={!!user}><PublicFooter signedIn={!!user}/></SiteChrome>
+    </SigninProvider>
   </body></html>;
 }

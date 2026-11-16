@@ -1,4 +1,5 @@
 'use client';
+import { SigninLink } from '@/components/signin-dialog';
 import {useWorkspaceRouter} from './workspace-navigation';
 import {useEffect,useRef,useState} from 'react';
 
@@ -158,7 +159,7 @@ export default function Intake({sourceSession,newSearch=false,embedded=false,ini
               setProfile(p=>({...p,role_intents:p.role_intents.map((role,i)=>i===index?{...role,concept_id,confirmed:!!concept_id}:role)}));
             }}><option value="">Choose a profession</option>{options.map(option=><option key={option.concept_id} value={option.concept_id}>{option.label}</option>)}</select>
           </label>)}
-          {accountLoading?<p role="status">Checking your account…</p>:accountError?<p className="error" role="alert">We couldn’t check your account. <button type="button" className="text-button" onClick={()=>void checkAccount()}>Retry</button></p>:!signedIn?<p className="error"><Link href="/account">Sign in to start your search</Link></p>:null}
+          {accountLoading?<p role="status">Checking your account…</p>:accountError?<p className="error" role="alert">We couldn’t check your account. <button type="button" className="text-button" onClick={()=>void checkAccount()}>Retry</button></p>:!signedIn?<p className="error"><SigninLink>Sign in to start your search</SigninLink></p>:null}
         </>}
         {error&&<p className="error" role="alert">{error}</p>}
         <div className="form-actions"><button type="button" className="back-button reset-profile" disabled={busy||accountLoading} onClick={startFresh}><RotateCcw size={15}/>Reset profile</button>{step>0&&<button type="button" className="back-button" disabled={busy} onClick={()=>{setStep(step-1);setError('');}}><ArrowLeft size={16}/>Back</button>}<button className="button" type="submit" disabled={busy||(step===2&&(accountLoading||accountError||creditBalance===0||!signedIn||professionChoices.some(choice=>!profile.role_intents[choice.index]?.concept_id)))}>{busy?'Working…':step===2?sourceSession?'Update this shortlist':'Find my sponsors':'Continue'}<ArrowRight size={18}/></button></div>

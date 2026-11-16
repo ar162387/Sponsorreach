@@ -11,6 +11,7 @@ function load(file){
  const module={exports:{}};compiled.set(file,module);
  const code=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText;
  function localRequire(spec){
+  if(spec.endsWith('.module.css'))return {};
   if(spec==='next/navigation')return {useRouter:()=>({push:()=>{throw new Error('Workspace must not navigate away');}})};
   if(spec==='next/link')return {__esModule:true,default:({children,href,...props})=>React.createElement('a',{...props,href},children),useLinkStatus:()=>({pending:false})};
   if(spec==='next/image')return {__esModule:true,default:({unoptimized,...props})=>React.createElement('img',props)};

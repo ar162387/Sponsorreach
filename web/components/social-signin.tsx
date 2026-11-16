@@ -11,15 +11,15 @@ type GoogleIdentity = {
   } };
 };
 type Provider = 'google' | 'facebook';
-export type SocialConfig = { googleClientId: string; facebook: boolean };
+export type SocialConfig = { googleClientId: string };
 
-export function SocialButtons({ googleClientId, facebook, shortlist, linking = false }: SocialConfig & {
-  shortlist?: string; linking?: boolean;
+export function SocialButtons({ googleClientId, shortlist, linking = false, onComplete }: SocialConfig & {
+  shortlist?: string; linking?: boolean; onComplete?: (next: string) => void;
 }) {
   const googleContainer = useRef<HTMLDivElement>(null);
   const [scriptReady, setScriptReady] = useState(false);
   const [notice, setNotice] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [retry, setRetry] = useState(0);
   useEffect(() => {
     if (!googleClientId || !scriptReady || !googleContainer.current) return;
     const target = googleContainer.current;
@@ -41,56 +41,41 @@ export function SocialButtons({ googleClientId, facebook, shortlist, linking = f
             const result = await api<{ next: string }>('auth/social', {
               method: 'POST', body: JSON.stringify({ action: 'google', credential }),
             });
-            window.location.assign(result.next);
+            if (onComplete) onComplete(result.next);
+            else window.location.assign(result.next);
           } catch (error) {
-            setNotice((error as Error).message + ' Refresh this page to try Google again.');
+            setNotice((error as Error).message);
           }
         },
       });
       target.replaceChildren();
-      google.accounts.id.renderButton(target, { theme: 'outline', size: 'large', text: 'continue_with', width: Math.min(300, target.clientWidth || 300) });
+      google.accounts.id.renderButton(target, { theme: 'outline', size: 'large', text: 'continue_with', width: Math.min(400, target.clientWidth || 300) });
     }
     void renderGoogle().catch(error => {
       if (!controller.signal.aborted) setNotice((error as Error).message);
     });
     return () => { controller.abort(); target.replaceChildren(); };
-  }, [googleClientId, linking, scriptReady, shortlist]);
+  }, [googleClientId, linking, onComplete, retry, scriptReady, shortlist]);
 
-  async function continueFacebook() {
-    setBusy(true);
-    setNotice('');
-    try {
-      const result = await api<{ url: string }>('auth/social', {
-        method: 'POST', body: JSON.stringify({ action: 'start', provider: 'facebook', shortlist, linking }),
-      });
-      window.location.assign(result.url);
-    } catch (error) {
-      setNotice((error as Error).message);
-      setBusy(false);
-    }
-  }
-
-  if (!googleClientId && !facebook) return null;
+  if (!googleClientId) return null;
   return <div className="social-signin" aria-label={linking ? 'Connect a sign-in method' : 'Other sign-in methods'}>
-    {googleClientId && <>
-      <Script src="https://accounts.google.com/gsi/client" strategy="afterInteractive"
-        onReady={() => setScriptReady(true)} onError={() => setNotice('Google is unavailable. You can still use an email code.')}/>
-      <div className="google-signin" ref={googleContainer}/>
+    <Script src="https://accounts.google.com/gsi/client" strategy="afterInteractive"
+      onReady={() => setScriptReady(true)} onError={() => setNotice('Google is unavailable. You can still use an email code.')}/>
+    <div className="google-signin" ref={googleContainer}/>
+    {notice && <>
+      <p className="notice" role="status">{notice}</p>
+      {scriptReady && <button type="button" className="text-button" onClick={() => {
+        setNotice(''); setRetry(value => value + 1);
+      }}>Try Google again</button>}
     </>}
-    {facebook && <button type="button" className="facebook-signin" disabled={busy} onClick={continueFacebook}>
-      <svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-        <path d="M24 12a12 12 0 1 0-13.875 11.85v-8.39H7.078V12h3.047V9.356c0-3.007 1.792-4.67 4.533-4.67 1.312 0 2.686.235 2.686.235v2.952h-1.513c-1.49 0-1.956.925-1.956 1.874V12h3.328l-.532 3.46h-2.796v8.39A12 12 0 0 0 24 12Z"/>
-      </svg>
-      {busy ? 'Opening Facebook…' : 'Continue with Facebook'}
-    </button>}
-    {notice && <p className="notice" role="status">{notice}</p>}
   </div>;
 }
 
-export function VerificationForm({ title, description, email: initialEmail, linking, onSubmit, onCancel }: {
+export function VerificationForm({ title, description, email: initialEmail, linking, onSubmit, onCancel, onComplete }: {
   title: string; description: string; email?: string | null; linking?: boolean;
   onSubmit: (action: 'send' | 'verify', email: string, code: string) => Promise<{ next?: string }>;
   onCancel: () => void;
+  onComplete?: (next: string) => void;
 }) {
   const [email, setEmail] = useState(initialEmail || '');
   const [code, setCode] = useState('');
@@ -108,7 +93,11 @@ export function VerificationForm({ title, description, email: initialEmail, link
     setNotice('');
     try {
       const result = await onSubmit(action, email, code);
-      if (result.next) { window.location.assign(result.next); return; }
+      if (result.next) {
+        if (onComplete) onComplete(result.next);
+        else window.location.assign(result.next);
+        return;
+      }
       setSent(true);
       setCode('');
       setCooldown(60);
@@ -137,8 +126,11 @@ export function VerificationForm({ title, description, email: initialEmail, link
   </form>;
 }
 
-export function VerifySocial({ provider, email, linking }: { provider: Provider; email?: string | null; linking: boolean }) {
-  return <VerificationForm title={linking ? 'Confirm this connection' : 'Confirm your email'}
+export function VerifySocial({ provider, email, linking, onComplete, onCancel }: {
+  provider: Provider; email?: string | null; linking: boolean;
+  onComplete?: (next: string) => void; onCancel?: () => void;
+}) {
+  return <VerificationForm onComplete={onComplete} title={linking ? 'Confirm this connection' : 'Confirm your email'}
     description={linking
       ? `We’ll send a code to your SponsorReach email before connecting ${provider === 'google' ? 'Google' : 'Facebook'}.`
       : 'Enter the email you use for SponsorReach so we can keep your research in one account.'}
@@ -146,6 +138,9 @@ export function VerifySocial({ provider, email, linking }: { provider: Provider;
     onSubmit={(action, address, code) => api('auth/social', { method: 'POST', body: JSON.stringify({ action, email: address, code, linking }) })}
     onCancel={async () => {
       try { await api('auth/social', { method: 'POST', body: JSON.stringify({ action: 'cancel' }) }); }
-      finally { window.location.assign(linking ? '/account/settings' : '/account'); }
+      finally {
+        if (onCancel) onCancel();
+        else window.location.assign(linking ? '/account/settings' : '/account');
+      }
     }}/>;
 }

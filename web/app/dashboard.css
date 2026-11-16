@@ -24,22 +24,6 @@
   width: min(100%, 300px);
   margin-block: 16px;
 }
-.facebook-signin {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  min-height: 40px;
-  padding: 6px 12px;
-  border: 1px solid #0866ff;
-  border-radius: 4px;
-  background: #0866ff;
-  color: #fff;
-  font: 600 14px/1.3 system-ui, sans-serif;
-  cursor: pointer;
-}
-.facebook-signin:disabled { cursor: wait; }
-
 /* Shared workspace chrome stays in place as the selected record changes. */
 .dashboard-frame.shortlists-layout .dashboard-content{padding:0}
 .dashboard-frame.shortlists-layout .workspace-columns{border:0;border-radius:0;min-height:calc(100dvh - 76px);height:auto;grid-template-columns:238px minmax(0,1fr)}

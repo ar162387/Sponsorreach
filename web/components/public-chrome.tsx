@@ -1,5 +1,6 @@
 import Image from 'next/image';
 import Link from 'next/link';
+import { SigninLink } from '@/components/signin-dialog';
 import { ArrowUpRight, ChevronDown } from 'lucide-react';
 import AccountNav from '@/components/account-nav';
 import AgentaBadge from '@/components/agenta-badge';
@@ -37,14 +38,14 @@ export function PublicHeader({signedIn}: {signedIn: boolean}) {
         </nav>
         <div className={s.navActions}>
           {signedIn ? <AccountNav signedIn/> : <>
-            <Link className={s.signIn} href="/account">Sign in</Link>
-            <Link className={s.navCta} href="/match">Start for free <ArrowUpRight size={15}/></Link>
+            <SigninLink className={s.signIn}>Sign in</SigninLink>
+            <SigninLink className={s.navCta} destination="/account/search">Start for free <ArrowUpRight size={15}/></SigninLink>
           </>}
         </div>
         <details className={s.mobileMenu}>
           <summary>Menu <ChevronDown size={14}/></summary>
           <nav aria-label="Mobile landing navigation">
-            <Link href={home + "#how-it-works"}>How it works</Link><Link href={home + "#pricing"}>Pricing</Link><Link href={home + "#faq"}>FAQs</Link><Link href="/account">{signedIn ? "My account" : "Sign in"}</Link>
+            <Link href={home + "#how-it-works"}>How it works</Link><Link href={home + "#pricing"}>Pricing</Link><Link href={home + "#faq"}>FAQs</Link><SigninLink>{signedIn ? "My account" : "Sign in"}</SigninLink>{!signedIn && <SigninLink destination="/account/search" className={s.navCta}>Start for free <ArrowUpRight size={15}/></SigninLink>}
           </nav>
         </details>
       </div>
@@ -58,7 +59,9 @@ export function PublicFooter({signedIn}: {signedIn: boolean}) {
     <footer className={s.footer}>
       <div className={s.footerGrid}>
         <div><Wordmark/><p>UK employer research for international graduates and professionals.</p><AgentaBadge/></div>
-        {footerLinks.map(([group, links]) => <nav key={group} aria-label={group}><h2>{group}</h2>{links.map(([label, href]) => <Link key={href} href={href.startsWith("#") ? home + href : href}>{label}</Link>)}</nav>)}
+        {footerLinks.map(([group, links]) => <nav key={group} aria-label={group}><h2>{group}</h2>{links.map(([label, href]) => href === '/match' || href === '/account'
+          ? <SigninLink key={href} destination={href === '/match' ? '/account/search' : '/account'}>{label}</SigninLink>
+          : <Link key={href} href={href.startsWith("#") ? home + href : href}>{label}</Link>)}</nav>)}
       </div>
       <div className={s.footerBottom}>
         <p>Employers decide whether to offer a job or sponsorship.</p>

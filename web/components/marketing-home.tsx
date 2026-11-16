@@ -1,5 +1,6 @@
 import Image from 'next/image';
 import Link from 'next/link';
+import { SigninLink } from '@/components/signin-dialog';
 import {
   ArrowUpRight, Bookmark, Building2, Check,
   GraduationCap, Layers3, Plus, ShieldCheck, SlidersHorizontal,
@@ -33,7 +34,7 @@ export default function MarketingHome() {
           <h1 id="landing-title">Find UK<br/> sponsors that<br/> <span>fit your skills.</span></h1>
           <p className={s.heroIntro}>Build a shortlist of licensed employers based on your degree, skills and experience. See why each one fits and where to start your research.</p>
           <div className={s.heroActions}>
-            <Link href="/match" className={s.primary}>Start for free <ArrowUpRight size={19}/></Link>
+            <SigninLink destination="/account/search" className={s.primary}>Start for free <ArrowUpRight size={19}/></SigninLink>
           </div>
           <p className={s.freeNote}><Check size={15}/> 5 free credits when you verify your email</p>
         </div>
@@ -88,13 +89,13 @@ export default function MarketingHome() {
             <h3>Free signup credits</h3>
             <p className={s.amount}>€0</p>
             <ul><li><Check size={17}/> 5 free credits after email verification</li><li><Check size={17}/> Company context and reasons for relevance</li><li><Check size={17}/> Available application and contact routes</li></ul>
-            <Link href="/match" className={s.outlineButton}>Start for free <ArrowUpRight size={17}/></Link>
+            <SigninLink destination="/account/search" className={s.outlineButton}>Start for free <ArrowUpRight size={17}/></SigninLink>
           </article>
           <article className={s.paidPlan}>
             <h3>SponsorReach Monthly</h3>
             <p className={s.amount}>€24.99 <span>/ month</span></p>
             <ul><li><Check size={17}/> 100 research credits each paid month</li><li><Check size={17}/> The same research and contact features</li><li><Check size={17}/> Manage renewal from your account</li></ul>
-            <Link href="/account/billing" className={s.primary}>View subscription <ArrowUpRight size={17}/></Link>
+            <SigninLink destination="/account/billing" className={s.primary}>View subscription <ArrowUpRight size={17}/></SigninLink>
           </article>
         </div>
         <Link href="/refunds" className={s.policyLink}>Payment, cancellation and refund details <ArrowUpRight size={15}/></Link>
@@ -110,7 +111,7 @@ export default function MarketingHome() {
       <section className={s.closing} aria-labelledby="closing-title">
         <div className={s.closingRings} aria-hidden="true"><span/><span/><span/></div>
         <div><h2 id="closing-title">Who could you<br/> work for next?</h2><p>Start with your skills and see where they could take you.</p></div>
-        <Link href="/match" className={s.darkButton}>Build my shortlist <ArrowUpRight size={20}/></Link>
+        <SigninLink destination="/account/search" className={s.darkButton}>Build my shortlist <ArrowUpRight size={20}/></SigninLink>
       </section>
     </div>
   );

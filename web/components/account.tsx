@@ -3,11 +3,9 @@ import {NEW_SEARCH_REQUESTED,useWorkspaceRouter} from './workspace-navigation';
 import {usePathname,useSearchParams} from 'next/navigation';
 import {refreshCredits} from './dashboard-shell';
 import { useState, useEffect, useCallback, useRef } from 'react';
-import Link from '@/components/navigation-link';
 import { ArrowUpRight, Search, Star, Bookmark, Plus, LayoutList, LoaderCircle, X, ArrowLeft } from 'lucide-react';
 import { api, matchingContext, type LoadingContext, type Profile, type EmployerCard, type MatchSession } from '@/lib/types';
 import Intake from './intake';
-import EmailSignin from './email-signin';
 import Results, { type ShortlistView } from './results';
 import { Card } from './employer-card';
 import {DataValue,DataRows} from './data-placeholder';
@@ -19,10 +17,10 @@ type Overview = { sessions: Session[]; bookmarks?: EmployerCard[] };
 function sortSessions(rows: Session[]) { return [...rows].sort((a, b) => Number(!!b.starred) - Number(!!a.starred) || Date.parse(b.updated_at || b.created_at) - Date.parse(a.updated_at || a.created_at)); }
 function statusLabel(status: string) { return status === 'ready' ? 'Ready' : status === 'failed' ? 'Retry needed' : status === 'needs_clarification' ? 'More detail needed' : 'Matching'; }
 
-export default function Account({ authenticated = false }: { authenticated?: boolean; dashboard?: boolean }) {
+export default function Account() {
   const pathname=usePathname(),router=useWorkspaceRouter(),params=useSearchParams();
   const [sessions, setSessions] = useState<Session[]>([]), [overview, setOverview] = useState<Overview | null>(null);
-  const [notice, setNotice] = useState(''), [error, setError] = useState(''), [loading, setLoading] = useState(true), [signedIn, setSignedIn] = useState(authenticated), [signinAvailable, setSigninAvailable] = useState(false);
+  const [notice, setNotice] = useState(''), [error, setError] = useState(''), [loading, setLoading] = useState(true);
   const requestedId=params.get('shortlist');
   const [activeId, setActiveId] = useState(isShortlistId(requestedId)?requestedId:''), [view, setView] = useState<'shortlists' | 'bookmarks'>('shortlists'), [filter, setFilter] = useState<'all' | 'starred'>('all'), [query, setQuery] = useState('');
   const [runContext,setRunContext]=useState<LoadingContext>();
@@ -41,17 +39,15 @@ export default function Account({ authenticated = false }: { authenticated?: boo
     setLoading(true); setError('');
     try {
       const section=pathname==='/account/saved'?'bookmarks':'shortlists';
-      const response = await fetch('/api/account/overview'+(authenticated?'?section='+section:''), { cache: 'no-store', signal });
+      const response = await fetch('/api/account/overview?section='+section, { cache: 'no-store', signal });
       if (response.status === 401) {
         cache.current.clear(); setOverview(null); setSessions([]);
-        if (authenticated) { window.location.replace('/account?signin=expired'); return; }
-        setSignedIn(false);
-        const [history, status] = await Promise.all([api<{ sessions: Session[] }>('matches/history', { signal }), api<{ email_signin_available: boolean }>('catalogue/status', { signal })]);
-        setSessions(history.sessions); setSigninAvailable(status.email_signin_available);
+        window.location.replace('/account?signin=expired');
+        return;
       } else {
         if (!response.ok) throw new Error('Your workspace is temporarily unavailable. Your saved shortlists are safe.');
-        const value: Overview = await response.json(); setOverview(current=>({...current,...value,bookmarks:value.bookmarks??current?.bookmarks})); setSignedIn(true);
-        if(section==='bookmarks'&&authenticated)return;
+        const value: Overview = await response.json(); setOverview(current=>({...current,...value,bookmarks:value.bookmarks??current?.bookmarks}));
+        if(section==='bookmarks')return;
         setSessions(value.sessions);
         const params = new URLSearchParams(window.location.search);
         const requested = params.get('shortlist');
@@ -61,13 +57,13 @@ export default function Account({ authenticated = false }: { authenticated?: boo
       }
     } catch (e) { if (!signal?.aborted) setError((e as Error).message); }
     finally { if (!signal?.aborted) setLoading(false); }
-  }, [authenticated, pathname]);
+  }, [pathname]);
   useEffect(() => {
-    if(authenticated&&!['/account/shortlists','/account/saved'].includes(pathname))return;
+    if(!['/account/shortlists','/account/saved'].includes(pathname))return;
     const controller = new AbortController();
     load(controller.signal);
     return () => controller.abort();
-  }, [load,authenticated,pathname]);
+  }, [load,pathname]);
   useEffect(() => {
     const status = new URLSearchParams(window.location.search).get('signin');
     if (status === 'expired') setNotice('Your sign-in expired. Request a new email code to return to your account.');
@@ -137,7 +133,6 @@ export default function Account({ authenticated = false }: { authenticated?: boo
 
   const searching=pathname==='/account/search';
   const savedView=pathname==='/account/saved';
-  if (!signedIn) return <section className="account-shell shell guest-account"><p className="eyebrow">YOUR SPONSORREACH WORKSPACE</p><h1>Your next step starts here.</h1><p className="muted">Create your account or sign in. New members receive 5 free research credits after confirming their email.</p>{notice && <p className="notice" role="status">{notice}</p>}{signinAvailable ? <EmailSignin/> : <p>Email sign-in is temporarily unavailable.</p>}{!!sessions.length && <div className="history-list">{sessions.map(row => <Link key={row.id} className="history-row" href={'/results/' + row.id}>Sponsor shortlist · {new Date(row.created_at).toLocaleDateString('en-GB')}<ArrowUpRight size={16}/></Link>)}</div>}</section>;
 
   return <section className={`research-workspace dashboard-research ${searching?'research-search-only':''} ${savedView?'research-saved-only':''} ${mobileDetail ? 'show-mobile-detail' : 'show-mobile-list'}`}>
     {savedView&&<header className="dashboard-page-heading"><h1>Saved companies</h1></header>}
