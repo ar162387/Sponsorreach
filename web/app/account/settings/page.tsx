@@ -10,16 +10,16 @@ export const metadata = { title: 'Account settings', robots: { index: false, fol
 export default async function Page({ searchParams }: { searchParams: Promise<{ signin?: string }> }) {
   const user = await verifiedUser();
   if (!user) redirect('/account');
-  if (isAdministrator(user)) return <div className="dashboard-stack"><h1>Account settings</h1><section className="dashboard-card"><h2>Administrator account</h2><p>{user.email}</p></section></div>;
-  return <div className="dashboard-stack">
-    <h1>Account settings</h1>
+  if (isAdministrator(user)) return <div className="member-settings"><h1>Account settings</h1><section className="dashboard-card"><h2>Administrator account</h2><p>{user.email}</p></section></div>;
+  return <div className="member-settings">
+    <header className="settings-page-heading"><h1>Account settings</h1><p>Manage your sign-in methods and account data.</p></header>
     <Suspense fallback={<section className="dashboard-card" aria-busy="true"><h2>Connected sign-in methods</h2><span className="data-placeholder"/></section>}>
-      <SettingsControls searchParams={searchParams}/>
+      <SettingsControls email={user.email || ''} searchParams={searchParams}/>
     </Suspense>
   </div>;
 }
 
-async function SettingsControls({searchParams}:{searchParams:Promise<{signin?:string}>}) {
+async function SettingsControls({ email, searchParams }: { email: string; searchParams: Promise<{ signin?: string }> }) {
   const accessToken = await currentAccessToken();
   if (!accessToken) return <section className="dashboard-card"><p>Your session needs to be renewed to manage settings.</p><a href="/account?signin=expired">Return to sign-in</a></section>;
   const config = socialConfig();
@@ -30,13 +30,14 @@ async function SettingsControls({searchParams}:{searchParams:Promise<{signin?:st
     return <section className="dashboard-card"><h2>Connected sign-in methods</h2><p>Settings are temporarily unavailable.</p><a href="/account/settings">Try again</a></section>;
   }
   let { signin } = await searchParams;
-  let pending;
+  let pending = false;
   if (signin === 'verify') {
     try {
       const attempt = await memberAccess<{ provider: SocialProvider; email?: string; linking: boolean }>('pending', await pendingSocial(), accessToken);
-      if (attempt.linking) pending = attempt;
+      pending = attempt.linking && attempt.provider === 'google';
     } catch { /* The member can restart from this page. */ }
     if (!pending) signin = 'expired';
   }
-  return <MemberSettings providers={providers} config={config} pending={pending} signin={signin} closureAvailable={closureAvailable()}/>;
+  return <MemberSettings email={email} googleConnected={providers.includes('google')} googleClientId={config.googleClientId}
+    pending={pending} signin={signin} closureAvailable={closureAvailable()}/>;
 }

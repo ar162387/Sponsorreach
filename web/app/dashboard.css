@@ -263,3 +263,115 @@ html:has(.new-shortlist-dialog[open]) { overflow: hidden; }
   .search-form-actions .button { width: 100%; }
   .dashboard-frame.shortlists-layout .embedded-results .research-detail-heading h2 { font-size: clamp(22px, 6vw, 29px); }
 }
+
+.member-settings { width: min(100%, 880px); margin: 4px auto 48px; }
+.member-settings .settings-page-heading { margin-bottom: 24px; }
+.member-settings .settings-page-heading h1 {
+  margin: 0 0 6px;
+  color: #21382d;
+  font: 800 clamp(27px, 4vw, 40px)/1.15 'Manrope', sans-serif;
+  letter-spacing: -.045em;
+}
+.settings-page-heading p, .settings-card-heading p, .settings-method-copy span { margin: 0; color: #526357; }
+.settings-card { margin-bottom: 18px; border: 1px solid #dce3d5; border-radius: 14px; background: #fffdf7; }
+.settings-card-heading {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 19px 22px;
+  border-bottom: 1px solid #e3e8dd;
+}
+.member-settings .settings-card-heading h2 { margin: 0 0 3px; font: 750 19px/1.25 'Manrope', sans-serif; letter-spacing: -.02em; }
+.settings-icon {
+  display: grid;
+  flex: 0 0 42px;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 9px;
+  background: #eaf0e3;
+  color: #31513e;
+}
+.settings-provider { grid-area: icon; background: #fffefa; border: 1px solid #e0e5da; }
+.settings-methods { margin: 0; padding: 0; list-style: none; }
+.settings-method {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto auto;
+  grid-template-areas: 'icon copy status action' '. connect connect connect';
+  gap: 0 12px;
+  align-items: center;
+  padding: 14px 22px;
+}
+.settings-method + .settings-method { border-top: 1px solid #e3e8dd; }
+.settings-method-copy { grid-area: copy; display: grid; gap: 2px; overflow-wrap: anywhere; }
+.settings-method-copy strong { font-weight: 750; }
+.settings-method-copy span { font-size: 13px; }
+.settings-method > .button { grid-area: action; justify-self: start; }
+.settings-status {
+  grid-area: status;
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 16px;
+  background: #efeee7;
+  color: #555c50;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.settings-active { background: #e7f0e1; color: #27533b; }
+.settings-google-connect { grid-area: connect; min-width: 0; }
+.settings-google-connect .social-signin { margin-bottom: 0; }
+.settings-feedback { padding: 10px 14px; border: 1px solid #d4e2cf; border-radius: 8px; background: #edf4e8; }
+
+.settings-deletion { border-color: #ecd2c8; }
+.settings-deletion .settings-card-heading { border-color: #f0ddd5; background: #fcf3ed; border-radius: 13px 13px 0 0; }
+.settings-deletion .settings-icon { color: #993f29; background: #f4e0d6; }
+.settings-delete-content { padding: 15px 22px 18px; }
+.settings-delete-content p { margin: 0 0 15px; max-width: 66ch; color: #526357; }
+.settings-delete-content a:not(.button) { color: #355843; text-decoration: underline; text-underline-offset: 3px; }
+.settings-delete-actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.settings-policy-link { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
+.dashboard-frame .settings-danger-button, .dashboard-frame .settings-confirm[data-danger='true'] button[type=submit] {
+  background: #fff7f3;
+  border: 1px solid #c28570;
+  color: #8b3522;
+}
+.dashboard-frame .settings-danger-button:hover, .dashboard-frame .settings-confirm[data-danger='true'] button[type=submit]:hover { background: #f9e3db; }
+.settings-confirm {
+  width: min(440px, calc(100% - 24px));
+  max-height: calc(100dvh - 24px);
+  margin: auto;
+  padding: 22px;
+  overflow: auto;
+  background: #fffdf7;
+  color: #21382d;
+  border: 1px solid #dce3d5;
+  border-radius: 14px;
+}
+.settings-confirm::backdrop { background: #192d2490; backdrop-filter: blur(3px); }
+.dashboard-frame .settings-confirm .signin-panel,
+.dashboard-frame .settings-google-connect .signin-panel {
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  margin: 0;
+  background: transparent;
+}
+.dashboard-frame .settings-google-connect .signin-panel { margin-top: 12px; }
+.dashboard-frame .settings-confirm .signin-panel h3 { font: 750 22px/1.2 'Manrope', sans-serif; }
+.dashboard-frame :is(.settings-confirm, .settings-google-connect) .signin-panel label { display: grid; gap: 5px; margin: 0; }
+.dashboard-frame :is(.settings-confirm, .settings-google-connect) .signin-panel input { width: 100%; max-width: none; margin: 0; }
+
+@media (max-width: 560px) {
+  .settings-card-heading, .settings-method, .settings-delete-content { padding-inline: 14px; }
+  .settings-method {
+    grid-template-columns: 42px minmax(0, 1fr) auto;
+    grid-template-areas: 'icon copy copy' '. status action' 'connect connect connect';
+    row-gap: 8px;
+  }
+  .settings-method:not(:has(> .button)) { grid-template-areas: 'icon copy copy' '. status status' 'connect connect connect'; }
+  .settings-method > .button { justify-self: end; }
+}

@@ -71,11 +71,12 @@ export function SocialButtons({ googleClientId, shortlist, linking = false, onCo
   </div>;
 }
 
-export function VerificationForm({ title, description, email: initialEmail, linking, onSubmit, onCancel, onComplete }: {
+export function VerificationForm({ title, description, email: initialEmail, linking, onSubmit, onCancel, onComplete, verifyLabel }: {
   title: string; description: string; email?: string | null; linking?: boolean;
   onSubmit: (action: 'send' | 'verify', email: string, code: string) => Promise<{ next?: string }>;
   onCancel: () => void;
   onComplete?: (next: string) => void;
+  verifyLabel?: string;
 }) {
   const [email, setEmail] = useState(initialEmail || '');
   const [code, setCode] = useState('');
@@ -109,13 +110,13 @@ export function VerificationForm({ title, description, email: initialEmail, link
     event.preventDefault();
     void submit(sent ? 'verify' : 'send');
   }
-  return <form className="signin-panel" onSubmit={handleSubmit}>
+  return <form className="signin-panel" aria-busy={busy} onSubmit={handleSubmit}>
     <div><h3>{title}</h3><p>{description}</p></div>
     {!linking && <label>Email address<input type="email" autoComplete="email" required maxLength={254}
       value={email} disabled={sent || busy} onChange={event => setEmail(event.target.value)}/></label>}
     {sent && <label>Email code<input required autoFocus inputMode="numeric" autoComplete="one-time-code"
       pattern="[0-9]{6,10}" maxLength={10} value={code} onChange={event => setCode(event.target.value.replace(/\D/g, ''))}/></label>}
-    <button className="button small" disabled={busy}>{busy ? 'Please wait…' : sent ? 'Verify and continue' : 'Send email code'}</button>
+    <button className="button small" type="submit" disabled={busy}>{busy ? 'Please wait…' : sent ? verifyLabel || 'Verify and continue' : 'Send email code'}</button>
     {sent && <button className="text-button" type="button" disabled={busy || !!cooldown}
       onClick={() => void submit('send')}>{cooldown ? `Resend code in ${cooldown}s` : 'Resend code'}</button>}
     {sent && !linking && <button className="text-button" type="button" disabled={busy} onClick={() => {
