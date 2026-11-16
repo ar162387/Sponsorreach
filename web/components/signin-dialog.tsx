@@ -83,7 +83,7 @@ function SigninDialog({ request, emailAvailable, googleClientId, onClose }: {
     element.querySelector('input')?.focus();
   }, []);
 
-  const isSignup = request.destination === '/account/search';
+  const isSignup = request.destination === '/account/search' || request.destination === '/account/shortlists?new=1';
   const complete = useCallback((next: string) => {
     if (next === '/account?signin=verify') {
       window.location.assign(signinUrl('verify', request.destination));

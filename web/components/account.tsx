@@ -1,5 +1,5 @@
 'use client';
-import {NEW_SEARCH_REQUESTED,useWorkspaceRouter} from './workspace-navigation';
+import {useWorkspaceRouter} from './workspace-navigation';
 import {usePathname,useSearchParams} from 'next/navigation';
 import {refreshCredits} from './dashboard-shell';
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -22,17 +22,12 @@ export default function Account() {
   const [sessions, setSessions] = useState<Session[]>([]), [overview, setOverview] = useState<Overview | null>(null);
   const [notice, setNotice] = useState(''), [error, setError] = useState(''), [loading, setLoading] = useState(true);
   const requestedId=params.get('shortlist');
-  const [activeId, setActiveId] = useState(isShortlistId(requestedId)?requestedId:''), [view, setView] = useState<'shortlists' | 'bookmarks'>('shortlists'), [filter, setFilter] = useState<'all' | 'starred'>('all'), [query, setQuery] = useState('');
+  const [activeId, setActiveId] = useState(isShortlistId(requestedId)?requestedId:''), [view, setView] = useState<'shortlists' | 'bookmarks'>('shortlists'), [filter, setFilter] = useState<'all' | 'starred'>('all');
   const [runContext,setRunContext]=useState<LoadingContext>();
-  const [searchVersion,setSearchVersion]=useState(0);
-  useEffect(()=>{
-    const reset=()=>setSearchVersion(version=>version+1);
-    window.addEventListener(NEW_SEARCH_REQUESTED,reset);
-    return ()=>window.removeEventListener(NEW_SEARCH_REQUESTED,reset);
-  },[]);
-  const run=params.get('run');
-  const runId=pathname==='/account/search'&&isShortlistId(run)?run:null;
-  const [mobileDetail, setMobileDetail] = useState(pathname==='/account/search'||pathname==='/account/saved'||!!params.get('shortlist'));
+  const run = params.get('run');
+  const runId = pathname === '/account/shortlists' && isShortlistId(run) ? run : null;
+  const composing = pathname === '/account/shortlists' && params.get('new') === '1' && !runId;
+  const [mobileDetail, setMobileDetail] = useState(pathname === '/account/saved' || !!runId || isShortlistId(requestedId));
   const [pendingStars, setPendingStars] = useState<Set<string>>(new Set());
   const starRequests = useRef(new Set<string>()), cache = useRef(new Map<string, ShortlistView>());
   const load = useCallback(async (signal?: AbortSignal) => {
@@ -53,7 +48,7 @@ export default function Account() {
         const requested = params.get('shortlist');
         if (requested) setMobileDetail(true);
         setActiveId(current => value.sessions.some(row => row.id === (requested || current)) ? requested || current : sortSessions(value.sessions)[0]?.id || '');
-        if (pathname==='/account/shortlists' && !requested && value.sessions.length) { const url = new URL(window.location.href); url.searchParams.set('shortlist', sortSessions(value.sessions)[0].id); window.history.replaceState(null, '', url.pathname + url.search); }
+        if (pathname==='/account/shortlists' && !requested && !params.has('new') && !params.has('run') && value.sessions.length) { const url = new URL(window.location.href); url.searchParams.set('shortlist', sortSessions(value.sessions)[0].id); window.history.replaceState(null, '', url.pathname + url.search); }
       }
     } catch (e) { if (!signal?.aborted) setError((e as Error).message); }
     finally { if (!signal?.aborted) setLoading(false); }
@@ -77,20 +72,28 @@ export default function Account() {
       setView('shortlists');
       const id=params.get('shortlist');
       if(isShortlistId(id)){setActiveId(id);setMobileDetail(true);}
-      else setMobileDetail(false);
+      else setMobileDetail(!!runId);
     }
-  },[pathname,params]);
+  },[pathname,params,runId]);
   function select(id: string) {
     setActiveId(id); setView('shortlists'); setMobileDetail(true);
     if(pathname!=='/account/shortlists'){router.push('/account/shortlists?shortlist='+id);return;}
-    const url = new URL(window.location.href); url.searchParams.set('shortlist', id); url.searchParams.delete('new'); url.searchParams.delete('edit');
+    const url = new URL(window.location.href); url.searchParams.set('shortlist', id); url.searchParams.delete('new'); url.searchParams.delete('edit'); url.searchParams.delete('run');
     if (url.href !== window.location.href) window.history.pushState(null, '', url.pathname + url.search);
   }
   useEffect(() => { const panel = document.getElementById('shortlist-detail'); if (panel) panel.scrollTop = 0; }, [activeId, view]);
-  function newSearch() { router.push('/account/search'); }
+  function newSearch() {
+    const params = new URLSearchParams({ new: '1' });
+    if (pathname === '/account/shortlists' && activeId && !runId) params.set('shortlist', activeId);
+    router.push('/account/shortlists?' + params, { scroll: false });
+  }
+  function closeSearch() {
+    const previous = params.get('shortlist');
+    router.replace(isShortlistId(previous) ? '/account/shortlists?shortlist=' + previous : '/account/shortlists', { scroll: false });
+  }
   function completed(id: string, profile: Profile) {
     setRunContext(matchingContext(profile));
-    router.replace('/account/search?run='+id,{scroll:false});
+    router.replace('/account/shortlists?run='+id,{scroll:false});
   }
   function saveDelivered(value: MatchSession) {
     if(value.status==='ready'||value.status==='failed')refreshCredits();
@@ -127,23 +130,24 @@ export default function Account() {
     for (const [id, cached] of cache.current) cache.current.set(id, { ...cached, cards: cached.cards.map(item => item.employer_id === company.employer_id ? { ...item, bookmarked: saved } : item) });
   }, [activeId]);
   const active = sessions.find(row => row.id === activeId);
-  const filtered = sortSessions(sessions).filter(row => (filter === 'all' || row.starred) && (row.roles?.join(' ') || 'Sponsor shortlist').toLowerCase().includes(query.trim().toLowerCase()));
+  const filtered = sortSessions(sessions).filter(row => filter === 'all' || row.starred);
   const bookmarks = overview?.bookmarks || [];
   const bookmarksLoading=loading&&!overview?.bookmarks;
 
-  const searching=pathname==='/account/search';
   const savedView=pathname==='/account/saved';
 
-  return <section className={`research-workspace dashboard-research ${searching?'research-search-only':''} ${savedView?'research-saved-only':''} ${mobileDetail ? 'show-mobile-detail' : 'show-mobile-list'}`}>
+  return <section className={`research-workspace dashboard-research ${savedView?'research-saved-only':''} ${mobileDetail ? 'show-mobile-detail' : 'show-mobile-list'}`}>
+    {composing && <Intake onCancel={closeSearch} onComplete={completed}/>}
     {savedView&&<header className="dashboard-page-heading"><h1>Saved companies</h1></header>}
     {error&&<p className="error" role="alert">{error} <button className="text-button" onClick={()=>load()}>Try again</button></p>}
     {notice && <div className="workspace-notice" role="status">{notice}<button className="icon-button" aria-label="Dismiss message" onClick={() => setNotice('')}><X size={14}/></button></div>}
     <div className="workspace-columns">
-      <aside className="shortlist-sidebar" aria-label="Saved shortlists"><div className="sidebar-heading"><h1>Shortlists</h1><button className="button secondary small shortlist-new-search" onClick={newSearch}><Plus size={15}/>New search</button></div><label className="workspace-search"><Search size={15}/><span className="sr-only">Find a shortlist</span><input type="search" placeholder="Find a shortlist…" value={query} onChange={event => setQuery(event.target.value)}/></label><div className="shortlist-filters"><button aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>All</button><button aria-pressed={filter === 'starred'} onClick={() => setFilter('starred')}><Star size={13}/>Starred</button></div>
-      <div className="shortlist-scroll">{loading&&!overview?<DataRows label="shortlists"/>:filtered.length ? filtered.map(row => <article key={row.id} className={`shortlist-item ${activeId === row.id && view === 'shortlists' ? 'active' : ''}`}><button className={`shortlist-item-star ${row.starred ? 'selected' : ''}`} disabled={pendingStars.has(row.id)} aria-busy={pendingStars.has(row.id)} aria-pressed={!!row.starred} aria-label={row.starred ? 'Unstar shortlist' : 'Star shortlist'} onClick={() => toggleStar(row)}>{pendingStars.has(row.id) ? <LoaderCircle size={15} className="spin"/> : <Star size={16} fill={row.starred ? 'currentColor' : 'none'}/>}</button><button className="shortlist-select" aria-pressed={activeId === row.id && view === 'shortlists'} onClick={() => select(row.id)}><strong>{row.roles?.join(' · ') || 'Sponsor shortlist'}</strong><span><i className={`session-dot ${row.status}`}/>{statusLabel(row.status)} · {new Date(row.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span></button></article>) : <div className="sidebar-empty"><Search size={22}/><p>{query ? 'No shortlists match that search.' : filter === 'starred' ? 'Star a shortlist to pin it here.' : 'Your first shortlist starts with your background and skills.'}</p>{!sessions.length && <button className="button small" onClick={newSearch}>Start a search</button>}</div>}</div></aside>
+      <aside className="shortlist-sidebar" aria-label="Saved shortlists"><div className="sidebar-heading"><h1>Shortlists</h1><button className="button secondary small shortlist-new-search" onClick={newSearch}><Plus size={15}/>New search</button></div><div className="shortlist-filters"><button aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>All</button><button aria-pressed={filter === 'starred'} onClick={() => setFilter('starred')}><Star size={13}/>Starred</button></div>
+      <div className="shortlist-scroll">{loading&&!overview?<DataRows label="shortlists"/>:filtered.length ? filtered.map(row => <article key={row.id} className={`shortlist-item ${!runId && activeId === row.id && view === 'shortlists' ? 'active' : ''}`}><button className={`shortlist-item-star ${row.starred ? 'selected' : ''}`} disabled={pendingStars.has(row.id)} aria-busy={pendingStars.has(row.id)} aria-pressed={!!row.starred} aria-label={row.starred ? 'Unstar shortlist' : 'Star shortlist'} onClick={() => toggleStar(row)}>{pendingStars.has(row.id) ? <LoaderCircle size={15} className="spin"/> : <Star size={16} fill={row.starred ? 'currentColor' : 'none'}/>}</button><button className="shortlist-select" aria-pressed={!runId && activeId === row.id && view === 'shortlists'} onClick={() => select(row.id)}><strong>{row.roles?.join(' · ') || 'Sponsor shortlist'}</strong><span><i className={`session-dot ${row.status}`}/>{statusLabel(row.status)} · {new Date(row.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span></button></article>) : <div className="sidebar-empty"><Search size={22}/><p>{filter === 'starred' ? 'Star a shortlist to pin it here.' : 'Your first shortlist starts with your background and skills.'}</p>{!sessions.length && <button className="button small" onClick={newSearch}>Start a search</button>}</div>}</div></aside>
       <div className="workspace-details" id="shortlist-detail" aria-label={view === 'bookmarks' ? 'Bookmarked companies' : 'Selected shortlist'}>
         <button className="mobile-workspace-back text-button" onClick={() => { setMobileDetail(false); }}><ArrowLeft size={16}/>Your shortlists</button>
-        {searching ? (runId ? <Results key={runId} id={runId} embedded pendingContext={runContext} newRun onSessionChange={saveDelivered} cache={cache.current} onStartOver={newSearch}/> : <Intake key={searchVersion} embedded newSearch onCancel={()=>router.push('/account/shortlists')} onComplete={completed}/>) : savedView ? <><header className="research-detail-heading"><div><h2>Bookmarks</h2></div><span className="tag"><DataValue loading={bookmarksLoading} label="saved company count">{bookmarks.length}</DataValue> saved</span></header>{bookmarksLoading?<DataRows label="saved companies"/>:bookmarks.length ? <div className="workspace-bookmarks">{bookmarks.map((company, position) => <Card compact dashboard key={company.employer_id} employer={company} id={company.session_id || ''} position={position} onOpenShortlist={select} onBookmarkChange={saved => bookmarkChanged(company, saved)}/>)}</div> : <div className="workspace-empty"><Bookmark size={30}/><h2>Keep the companies you want to approach.</h2><p>Bookmark a company in any shortlist. Its available contacts will be saved here.</p><button className="button secondary small" onClick={() => router.push('/account/shortlists')}>Explore your shortlists</button></div>}</>
+        {runId ? <Results key={runId} id={runId} embedded pendingContext={runContext} newRun onSessionChange={saveDelivered}
+          cache={cache.current} onStartOver={newSearch}/> : savedView ? <><header className="research-detail-heading"><div><h2>Bookmarks</h2></div><span className="tag"><DataValue loading={bookmarksLoading} label="saved company count">{bookmarks.length}</DataValue> saved</span></header>{bookmarksLoading?<DataRows label="saved companies"/>:bookmarks.length ? <div className="workspace-bookmarks">{bookmarks.map((company, position) => <Card compact dashboard key={company.employer_id} employer={company} id={company.session_id || ''} position={position} onOpenShortlist={select} onBookmarkChange={saved => bookmarkChanged(company, saved)}/>)}</div> : <div className="workspace-empty"><Bookmark size={30}/><h2>Keep the companies you want to approach.</h2><p>Bookmark a company in any shortlist. Its available contacts will be saved here.</p><button className="button secondary small" onClick={() => router.push('/account/shortlists')}>Explore your shortlists</button></div>}</>
         : activeId ? <Results key={activeId} id={activeId} embedded externalStarred={active?.starred} title={active?.roles?.join(' · ')} knownStatus={active?.status} cache={cache.current} onSessionChange={sessionChanged} onBookmarkChange={bookmarkChanged}/>
         : loading&&!overview ? null : <div className="workspace-empty"><LayoutList size={32}/><h2>Your company research starts here.</h2><p>Create a shortlist around your background, skills and career interests.</p><button className="button small" onClick={newSearch}>Build my first shortlist<Plus size={16}/></button></div>}
       </div>

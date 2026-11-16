@@ -1,4 +1,8 @@
-import {redirect} from 'next/navigation';
-import {verifiedUser} from '@/lib/server';
-export const metadata={title:'New search',robots:{index:false,follow:false}};
-export default async function Page(){if(!await verifiedUser())redirect('/account');return null;}
+import { redirect } from 'next/navigation';
+
+export default async function Page({ searchParams }: { searchParams: Promise<{ run?: string }> }) {
+  const { run } = await searchParams;
+  redirect(typeof run === 'string' && /^[a-f0-9-]{36}$/.test(run)
+    ? '/account/shortlists?run=' + run
+    : '/account/shortlists?new=1');
+}

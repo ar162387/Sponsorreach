@@ -33,7 +33,7 @@ export default function PersonalizedLoader({ stage, context, error, embedded=fal
       <div className="loader-steps"><span className="status-dot"/>Matching companies to your search.</div>
       <button className="loader-pause text-button" aria-pressed={paused} onClick={() => setPaused(value => !value)}>{paused ? <Play size={13}/> : <Pause size={13}/>}{paused ? 'Resume messages' : 'Pause messages'}</button>
     </>}
-    {error && <SigninLink destination="/account/search" className="button">Start a new sponsor search<ArrowRight size={18}/></SigninLink>}
+    {error && <SigninLink destination="/account/shortlists?new=1" className="button">Start a new sponsor search<ArrowRight size={18}/></SigninLink>}
     {!embedded&&<SigninLink destination="/account/shortlists" className="text-button">My sponsor shortlists</SigninLink>}
   </section>;
 }

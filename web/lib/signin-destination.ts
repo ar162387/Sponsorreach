@@ -1,5 +1,5 @@
 const workspacePaths = new Set([
-  '/account', '/account/search', '/account/billing', '/account/shortlists',
+  '/account', '/account/search', '/account/shortlists?new=1', '/account/billing', '/account/shortlists',
   '/account/saved', '/account/settings', '/account/support',
 ]);
 

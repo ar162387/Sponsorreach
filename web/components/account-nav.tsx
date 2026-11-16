@@ -47,6 +47,6 @@ export default function AccountNav({ signedIn }: { signedIn: boolean }) {
     {signedIn ? <>
       <div ref={menu} className="account-menu" onMouseEnter={() => setMenuOpen(true)} onMouseLeave={() => setMenuOpen(false)} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setMenuOpen(false); }}><button type="button" className="account-menu-trigger" aria-expanded={menuOpen} aria-controls="account-menu-panel" onClick={() => setMenuOpen(true)}><span className="status-dot"/>My account<ChevronDown size={14}/></button>{menuOpen && <div id="account-menu-panel" className="account-menu-panel" onClick={() => setMenuOpen(false)}><Link href="/account">My shortlists</Link><Link href="/account/billing">Subscription &amp; usage</Link><Link href="/account/support">Support</Link><button disabled={busy} onClick={signOut}><LogOut size={15}/>{busy ? 'Signing out…' : 'Sign out'}</button>{error && <p role="alert" className="error">{error}</p>}</div>}</div>
     </> : <SigninLink className="nav-signin">Sign in</SigninLink>}
-    <>{!signedIn && <SigninLink className="button small" destination="/account/search">Find my sponsors<ArrowUpRight size={16}/></SigninLink>}</>
+    <>{!signedIn && <SigninLink className="button small" destination="/account/shortlists?new=1">Find my sponsors<ArrowUpRight size={16}/></SigninLink>}</>
   </nav>;
 }

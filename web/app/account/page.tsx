@@ -6,7 +6,7 @@ export const metadata={title:'Your workspace',robots:{index:false,follow:false}}
 export default async function Page({searchParams}:{searchParams:Promise<Record<string,string|string[]|undefined>>}) {
   const user=await verifiedUser();
   const params=await searchParams;
-  const destination = params.new === '1' ? '/account/search'
+  const destination = params.new === '1' ? '/account/shortlists?new=1'
     : typeof params.shortlist === 'string'
       ? '/account/shortlists?' + new URLSearchParams({ shortlist: params.shortlist, ...(params.edit === '1' ? { edit: '1' } : {}) })
       : signinDestination(params.returnTo);
