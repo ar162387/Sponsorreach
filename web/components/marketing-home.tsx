@@ -10,6 +10,13 @@ import CareerGallery from '@/components/career-gallery';
 import WorkflowVisual from '@/components/workflow-visual';
 import s from '@/app/landing.module.css';
 
+const universities = [
+  { name: 'University of Hertfordshire', logo: 'hertfordshire.svg' },
+  { name: 'University of Westminster', logo: 'westminster.svg' },
+  { name: 'University of East London', logo: 'east-london.svg' },
+  { name: 'University of Brighton', logo: 'brighton.svg' },
+];
+
 const workflow = [
   { icon: SlidersHorizontal, title: 'Tell us what you do', copy: 'Share your degree, skills and the kind of work you want to pursue.' },
   { icon: Building2, title: 'Find relevant companies', copy: 'See which UK licensed sponsors do work that overlaps with your background.' },
@@ -39,6 +46,17 @@ export default function MarketingHome() {
           <p className={s.freeNote}><Check size={15}/> 5 free credits when you verify your email</p>
         </div>
         <ShortlistPreview/>
+      </section>
+
+      <section className={s.universities} aria-labelledby="universities-title">
+        <h2 id="universities-title">For students and graduates from universities like</h2>
+        <ul className={s.universityList}>
+          {universities.map(({ name, logo }) => <li key={name}>
+            {/* Local copies of university wordmarks sourced from Wikimedia Commons. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={`/universities/${logo}`} alt={name}/>
+          </li>)}
+        </ul>
       </section>
 
       <CareerGallery/>

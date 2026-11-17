@@ -53,6 +53,29 @@
 .textLink:hover, .policyLink:hover { text-decoration: underline; text-underline-offset: 5px; }
 .freeNote { display: flex; align-items: center; gap: 7px; color: var(--muted-ink); margin: 13px 0 0; font-size: 13px; }
 
+ .universities {
+  position: relative; isolation: isolate; overflow: hidden;
+  width: min(1320px, 100% - 112px); margin: 0 auto 46px; padding: 27px 38px 30px;
+  border: 1px solid #fff; border-radius: 18px; text-align: center;
+  background: linear-gradient(120deg, #ffffffb8 0%, #edf1e5ad 44%, #ffffff94 100%);
+  box-shadow: 0 12px 32px #283d2810, inset 0 1px 0 #fff;
+  backdrop-filter: blur(14px);
+}
+.universities::after {
+  content: ''; position: absolute; z-index: -1; inset: 0; pointer-events: none;
+  background: linear-gradient(115deg, transparent 25%, #ffffff70 38%, transparent 50%);
+}
+.landing .universities h2 { margin: 0 0 17px; color: #69776c; font: 700 11px/1.4 'DM Sans', sans-serif; letter-spacing: .12em; text-transform: uppercase; }
+.universityList { display: flex; align-items: center; justify-content: space-around; gap: 30px; padding: 0; margin: 0; list-style: none; }
+.universityList li { display: flex; justify-content: center; align-items: center; flex: 1; min-width: 0; height: 65px; }
+.universityList img { display: block; max-width: min(100%, 190px); max-height: 62px; width: auto; height: auto; object-fit: contain; filter: grayscale(1); opacity: .67; }
+@media (max-width: 700px) {
+  .universities { width: calc(100% - 36px); margin-bottom: 30px; padding: 24px 20px; }
+  .universityList { flex-wrap: wrap; gap: 12px 24px; }
+  .universityList li { flex: 0 1 calc(50% - 12px); height: 55px; }
+  .universityList img { max-width: 145px; max-height: 50px; }
+}
+
 .preview {
   position: relative; isolation: isolate; margin: 0; border-radius: 21px; min-width: 0;
   padding: 21px 21px 30px; color: #f5faf0; background: #142820; border: 1px solid #263e31;
